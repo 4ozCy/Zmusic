@@ -15,8 +15,6 @@ data class PlayerUiState(
     val title: String = "",
     val artist: String = "",
     val album: String = "",
-    val albumId: Long = 0L,
-    val trackUri: String = "",
     val isPlaying: Boolean = false,
     val shuffle: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,

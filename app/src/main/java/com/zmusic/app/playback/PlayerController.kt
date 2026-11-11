@@ -1,10 +1,7 @@
 package com.zmusic.app.playback
 
 import android.content.ComponentName
-import android.content.ContentUris
 import android.content.Context
-import android.net.Uri
-import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -21,10 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 
-private const val KEY_ALBUM_ID = "zmusic.albumId"
-private const val KEY_URI = "zmusic.uri"
-private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
-
+/** No artwork on purpose: the app is cover-free by design, and skipping it keeps playback start instant. */
 fun TrackEntity.toMediaItem(): MediaItem = MediaItem.Builder()
     .setMediaId(mediaStoreId.toString())
     .setUri(uri)
@@ -33,11 +27,6 @@ fun TrackEntity.toMediaItem(): MediaItem = MediaItem.Builder()
             .setTitle(title)
             .setArtist(artist)
             .setAlbumTitle(album)
-            .setArtworkUri(ContentUris.withAppendedId(ALBUM_ART_BASE, albumId))
-            .setExtras(Bundle().apply {
-                putLong(KEY_ALBUM_ID, albumId)
-                putString(KEY_URI, uri)
-            })
             .build(),
     )
     .build()
@@ -101,7 +90,6 @@ class PlayerController(context: Context) {
     private fun sync(c: MediaController, rebuildQueue: Boolean) {
         val item = c.currentMediaItem
         val md = item?.mediaMetadata
-        val extras = md?.extras
         val queue = if (rebuildQueue) {
             List(c.mediaItemCount) { i ->
                 val m = c.getMediaItemAt(i)
@@ -121,8 +109,6 @@ class PlayerController(context: Context) {
             title = md?.title?.toString().orEmpty(),
             artist = md?.artist?.toString().orEmpty(),
             album = md?.albumTitle?.toString().orEmpty(),
-            albumId = extras?.getLong(KEY_ALBUM_ID) ?: 0L,
-            trackUri = extras?.getString(KEY_URI).orEmpty(),
             isPlaying = c.playWhenReady &&
                 c.playbackState != Player.STATE_ENDED &&
                 c.playbackState != Player.STATE_IDLE,
@@ -134,11 +120,20 @@ class PlayerController(context: Context) {
         )
     }
 
+    /**
+     * Big libraries are not sent whole: building and shipping thousands of MediaItems on the main
+     * thread made tapping a song feel laggy. Instead a window around the tapped song is queued
+     * (100 before, 300 after), which is plenty for normal listening and starts instantly.
+     */
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int) {
         if (tracks.isEmpty()) return
-        val items = tracks.map { it.toMediaItem() }
+        val idx = startIndex.coerceIn(0, tracks.lastIndex)
+        val windowed = tracks.size > WINDOW_THRESHOLD
+        val from = if (windowed) (idx - WINDOW_BEFORE).coerceAtLeast(0) else 0
+        val to = if (windowed) (idx + WINDOW_AFTER).coerceAtMost(tracks.size) else tracks.size
+        val items = tracks.subList(from, to).map { it.toMediaItem() }
         run { c ->
-            c.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
+            c.setMediaItems(items, idx - from, 0L)
             c.prepare()
             c.play()
         }
@@ -168,5 +163,11 @@ class PlayerController(context: Context) {
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
+    }
+
+    private companion object {
+        const val WINDOW_THRESHOLD = 400
+        const val WINDOW_BEFORE = 100
+        const val WINDOW_AFTER = 300
     }
 }
