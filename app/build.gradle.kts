@@ -5,6 +5,11 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// CI decodes ci/zmusic.keystore.b64 to ci/zmusic.jks. The key is committed on purpose so every
+// build has the SAME signature and new APKs install over old ones. It is public, so this is only
+// fine for a personal sideloaded app. Do not publish to Play with it.
+val releaseKeystore = rootProject.file("ci/zmusic.jks")
+
 android {
     namespace = "com.zmusic.app"
     compileSdk = 35
@@ -13,8 +18,20 @@ android {
         applicationId = "com.zmusic.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes the run number so each release has a higher versionCode than the last.
+        versionCode = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 1
+        versionName = "0.2.${versionCode}"
+    }
+
+    signingConfigs {
+        if (releaseKeystore.exists()) {
+            create("zmusic") {
+                storeFile = releaseKeystore
+                storePassword = "zmusic123"
+                keyAlias = "zmusic"
+                keyPassword = "zmusic123"
+            }
+        }
     }
 
     buildTypes {
@@ -22,8 +39,11 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // TODO: replace with a real release keystore before publishing.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseKeystore.exists()) {
+                signingConfigs.getByName("zmusic")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
