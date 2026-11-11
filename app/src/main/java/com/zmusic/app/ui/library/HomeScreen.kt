@@ -2,6 +2,7 @@ package com.zmusic.app.ui.library
 
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -152,7 +153,7 @@ private fun HeroCard(tracks: List<TrackEntity>, player: PlayerController, onOpen
                 style = TextStyle(fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, brush = AccentGradient),
             )
             Text(
-                "songs \u00B7 $albums albums \u00B7 $artists artists",
+                "songs · $albums albums · $artists artists",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -207,7 +208,7 @@ fun EmptyLibrary(scanning: Boolean, onRefresh: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         PillButton(
-            label = if (scanning) "Scanning\u2026" else "Scan again",
+            label = if (scanning) "Scanning…" else "Scan again",
             icon = Icons.Rounded.Refresh,
             filled = true,
             modifier = Modifier.fillMaxWidth(0.6f),
