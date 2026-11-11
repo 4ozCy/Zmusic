@@ -24,6 +24,7 @@ import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.TrackRow
+import com.zmusic.app.ui.theme.gradientTitleStyle
 
 @Composable
 fun LibraryScreen(
@@ -36,11 +37,11 @@ fun LibraryScreen(
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 16.dp, bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 20.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Library", style = MaterialTheme.typography.headlineMedium)
+                Text("Library", style = gradientTitleStyle())
                 if (tracks != null) {
                     Text(
                         "${tracks.size} songs",
@@ -50,7 +51,7 @@ fun LibraryScreen(
                 }
             }
             if (scanning) {
-                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(Modifier.size(24.dp).padding(end = 4.dp), strokeWidth = 2.dp)
             } else {
                 IconButton(onClick = onRefresh) { Icon(Icons.Rounded.Refresh, contentDescription = "Rescan library") }
             }
@@ -79,6 +80,7 @@ fun LibraryScreen(
                     TrackRow(
                         track = track,
                         isCurrent = track.mediaStoreId.toString() == playerState.mediaId,
+                        isPlaying = playerState.isPlaying,
                     ) {
                         player.setShuffle(false)
                         player.playQueue(tracks, index)

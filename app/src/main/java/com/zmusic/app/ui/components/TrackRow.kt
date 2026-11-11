@@ -1,14 +1,12 @@
 package com.zmusic.app.ui.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,18 +21,27 @@ import com.zmusic.app.util.formatTime
 fun TrackRow(
     track: TrackEntity,
     isCurrent: Boolean,
+    isPlaying: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .bouncyClick(onClick)
+            .padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Artwork(track.albumId, track.uri, track.album, Modifier.size(48.dp), 8.dp)
+        if (isCurrent) {
+            EqBars(
+                playing = isPlaying,
+                modifier = Modifier.size(44.dp).padding(12.dp),
+                bars = 4,
+            )
+        } else {
+            LetterTile(track.title, track.artist, Modifier.size(44.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 text = track.title,
@@ -56,6 +63,5 @@ fun TrackRow(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.width(0.dp))
     }
 }

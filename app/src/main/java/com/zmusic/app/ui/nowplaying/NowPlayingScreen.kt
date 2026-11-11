@@ -1,13 +1,12 @@
 package com.zmusic.app.ui.nowplaying
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -31,8 +30,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
@@ -40,12 +37,12 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,21 +53,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
-import com.zmusic.app.ui.components.Artwork
+import com.zmusic.app.ui.components.Aurora
+import com.zmusic.app.ui.components.EqBars
+import com.zmusic.app.ui.components.GradientPlayButton
+import com.zmusic.app.ui.components.OrbVisualizer
+import com.zmusic.app.ui.theme.Mint
 import com.zmusic.app.util.formatTime
-
-private data class ArtKey(val albumId: Long, val uri: String, val seed: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,11 +89,9 @@ fun NowPlayingScreen(player: PlayerController, onClose: () -> Unit) {
             )
         },
     ) {
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(listOf(accent.copy(alpha = 0.10f), Color.Transparent)),
-            ),
-        ) {
+        Box(Modifier.fillMaxSize()) {
+            Aurora(Modifier.fillMaxWidth().height(460.dp))
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -115,23 +109,21 @@ fun NowPlayingScreen(player: PlayerController, onClose: () -> Unit) {
                         style = MaterialTheme.typography.labelLarge,
                         color = muted,
                         modifier = Modifier.weight(1f),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                     )
                     IconButton(onClick = { showQueue = true }) {
                         Icon(Icons.Rounded.QueueMusic, contentDescription = "Open queue")
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(20.dp))
 
-                // Artwork: swipe left/right to change track. Previous/Next buttons below are the alternative.
-                val scale by animateFloatAsState(if (s.isPlaying) 1f else 0.94f, label = "artwork-scale")
-                Box(
+                // Swipe the orb left/right to change track. Previous/Next buttons are the alternative.
+                OrbVisualizer(
+                    playing = s.isPlaying,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth(0.82f)
                         .aspectRatio(1f)
-                        .graphicsLayer { scaleX = scale; scaleY = scale }
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
                         .pointerInput(Unit) {
                             detectHorizontalDragGestures(
                                 onDragStart = { dragX = 0f },
@@ -141,45 +133,45 @@ fun NowPlayingScreen(player: PlayerController, onClose: () -> Unit) {
                                 onHorizontalDrag = { _, d -> dragX += d },
                             )
                         },
-                ) {
-                    val art = ArtKey(s.albumId, s.trackUri, s.album.ifEmpty { s.title })
-                    AnimatedContent(
-                        targetState = art,
-                        transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
-                        label = "artwork",
-                    ) { k ->
-                        Artwork(k.albumId, k.uri, k.seed, Modifier.fillMaxSize(), 20.dp)
+                )
+
+                Spacer(Modifier.height(28.dp))
+
+                AnimatedContent(
+                    targetState = Triple(s.title, s.artist, s.album),
+                    transitionSpec = {
+                        (fadeIn(tween(320)) + slideInVertically(tween(320)) { it / 4 }) togetherWith
+                            (fadeOut(tween(180)) + slideOutVertically(tween(180)) { -it / 4 })
+                    },
+                    label = "meta",
+                ) { (title, artist, album) ->
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            artist,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = accent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            album,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
-
-                Column(Modifier.fillMaxWidth()) {
-                    Text(
-                        s.title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        s.artist,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = accent,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        s.album,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
                 SeekBar(player, s.durationMs)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -196,15 +188,7 @@ fun NowPlayingScreen(player: PlayerController, onClose: () -> Unit) {
                     IconButton(onClick = { player.previous() }, modifier = Modifier.size(56.dp)) {
                         Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous track", modifier = Modifier.size(36.dp))
                     }
-                    FilledIconButton(onClick = { player.togglePlayPause() }, modifier = Modifier.size(72.dp)) {
-                        Crossfade(targetState = s.isPlaying, label = "playpause") { playing ->
-                            Icon(
-                                if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (playing) "Pause" else "Play",
-                                modifier = Modifier.size(36.dp),
-                            )
-                        }
-                    }
+                    GradientPlayButton(playing = s.isPlaying, size = 76.dp) { player.togglePlayPause() }
                     IconButton(onClick = { player.next() }, modifier = Modifier.size(56.dp)) {
                         Icon(Icons.Rounded.SkipNext, contentDescription = "Next track", modifier = Modifier.size(36.dp))
                     }
@@ -220,7 +204,7 @@ fun NowPlayingScreen(player: PlayerController, onClose: () -> Unit) {
                         )
                     }
                 }
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(28.dp))
             }
         }
     }
@@ -249,6 +233,11 @@ private fun SeekBar(player: PlayerController, durationMs: Long) {
                 dragging = null
             },
             valueRange = 0f..max,
+            colors = SliderDefaults.colors(
+                thumbColor = Mint,
+                activeTrackColor = Mint,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(formatTime(shown.toLong()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -276,6 +265,10 @@ private fun QueueList(s: PlayerUiState, player: PlayerController) {
                         .padding(start = 24.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (current) {
+                        EqBars(s.isPlaying, Modifier.size(width = 20.dp, height = 18.dp), bars = 3)
+                        Spacer(Modifier.size(12.dp))
+                    }
                     Column(Modifier.weight(1f)) {
                         Text(
                             q.title,

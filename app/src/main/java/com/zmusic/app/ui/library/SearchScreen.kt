@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -15,12 +16,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.TrackRow
+import com.zmusic.app.ui.theme.Mint
+import com.zmusic.app.ui.theme.gradientTitleStyle
 
 @Composable
 fun SearchScreen(
@@ -42,13 +45,14 @@ fun SearchScreen(
     Column(Modifier.fillMaxSize()) {
         Text(
             "Search",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
+            style = gradientTitleStyle(),
+            modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 12.dp),
         )
         OutlinedTextField(
             value = query,
             onValueChange = vm::setQuery,
             singleLine = true,
+            shape = RoundedCornerShape(28.dp),
             placeholder = { Text("Songs, artists, albums") },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             trailingIcon = {
@@ -58,6 +62,12 @@ fun SearchScreen(
                     }
                 }
             },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Mint,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.10f),
+                focusedContainerColor = Color.White.copy(alpha = 0.05f),
+                unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
+            ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -71,6 +81,7 @@ fun SearchScreen(
                     TrackRow(
                         track = track,
                         isCurrent = track.mediaStoreId.toString() == playerState.mediaId,
+                        isPlaying = playerState.isPlaying,
                     ) {
                         keyboard?.hide()
                         player.setShuffle(false)
