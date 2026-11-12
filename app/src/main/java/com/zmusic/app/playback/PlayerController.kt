@@ -1,7 +1,10 @@
 package com.zmusic.app.playback
 
 import android.content.ComponentName
+import android.content.ContentUris
 import android.content.Context
+import android.net.Uri
+import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -18,7 +21,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 
-/** No artwork on purpose: the app is cover-free by design, and skipping it keeps playback start instant. */
+private const val KEY_ALBUM_ID = "zmusic.albumId"
+private const val KEY_URI = "zmusic.uri"
+private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
+
+/** Album id and uri ride along in the metadata extras so the UI can load artwork for any queue item. */
 fun TrackEntity.toMediaItem(): MediaItem = MediaItem.Builder()
     .setMediaId(mediaStoreId.toString())
     .setUri(uri)
@@ -27,6 +34,13 @@ fun TrackEntity.toMediaItem(): MediaItem = MediaItem.Builder()
             .setTitle(title)
             .setArtist(artist)
             .setAlbumTitle(album)
+            .setArtworkUri(ContentUris.withAppendedId(ALBUM_ART_BASE, albumId))
+            .setExtras(
+                Bundle().apply {
+                    putLong(KEY_ALBUM_ID, albumId)
+                    putString(KEY_URI, uri)
+                },
+            )
             .build(),
     )
     .build()
@@ -90,6 +104,7 @@ class PlayerController(context: Context) {
     private fun sync(c: MediaController, rebuildQueue: Boolean) {
         val item = c.currentMediaItem
         val md = item?.mediaMetadata
+        val extras = md?.extras
         val queue = if (rebuildQueue) {
             List(c.mediaItemCount) { i ->
                 val m = c.getMediaItemAt(i)
@@ -109,6 +124,8 @@ class PlayerController(context: Context) {
             title = md?.title?.toString().orEmpty(),
             artist = md?.artist?.toString().orEmpty(),
             album = md?.albumTitle?.toString().orEmpty(),
+            albumId = extras?.getLong(KEY_ALBUM_ID) ?: 0L,
+            trackUri = extras?.getString(KEY_URI).orEmpty(),
             isPlaying = c.playWhenReady &&
                 c.playbackState != Player.STATE_ENDED &&
                 c.playbackState != Player.STATE_IDLE,

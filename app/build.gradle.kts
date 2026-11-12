@@ -20,7 +20,7 @@ android {
         targetSdk = 35
         // CI passes the run number so each release has a higher versionCode than the last.
         versionCode = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 1
-        versionName = "0.2.${versionCode}"
+        versionName = "0.3.${versionCode}"
     }
 
     signingConfigs {
@@ -73,8 +73,10 @@ dependencies {
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.icons.extended)
+    debugImplementation(libs.compose.ui.tooling)
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
