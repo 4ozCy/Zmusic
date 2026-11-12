@@ -11,25 +11,28 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
@@ -50,9 +53,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -61,7 +70,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -76,7 +84,8 @@ import com.zmusic.app.ui.library.LibraryViewModel
 import com.zmusic.app.ui.library.PlaylistsScreen
 import com.zmusic.app.ui.library.SearchScreen
 import com.zmusic.app.ui.nowplaying.NowPlayingScreen
-import com.zmusic.app.ui.theme.Mint
+import com.zmusic.app.ui.theme.AppTheme
+import kotlin.math.roundToInt
 
 private val AUDIO_PERMISSION = if (Build.VERSION.SDK_INT >= 33) {
     Manifest.permission.READ_MEDIA_AUDIO
@@ -129,15 +138,17 @@ fun ZmusicRoot(container: AppContainer) {
     }
 
     if (!granted) {
-        PermissionScreen(
-            denied = denied,
-            onAllow = { audioLauncher.launch(AUDIO_PERMISSION) },
-            onOpenSettings = {
-                context.startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
-                )
-            },
-        )
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            PermissionScreen(
+                denied = denied,
+                onAllow = { audioLauncher.launch(AUDIO_PERMISSION) },
+                onOpenSettings = {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+                    )
+                },
+            )
+        }
     } else {
         MainShell(vm, container)
     }
@@ -165,11 +176,15 @@ private fun MainShell(vm: LibraryViewModel, container: AppContainer) {
         }
     }
 
+    val backStack by nav.currentBackStackEntryAsState()
+    val currentRoute = backStack?.destination?.route
+    val selectedIndex = DESTINATIONS.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                Column(Modifier.navigationBarsPadding()) {
+                Column {
                     AnimatedVisibility(
                         visible = playerState.hasMedia,
                         enter = slideInVertically(tween(320)) { it } + fadeIn(tween(320)),
@@ -177,12 +192,7 @@ private fun MainShell(vm: LibraryViewModel, container: AppContainer) {
                     ) {
                         MiniPlayer(playerState, player) { showPlayer = true }
                     }
-                    val backStack by nav.currentBackStackEntryAsState()
-                    val currentDestination = backStack?.destination
-                    FloatingNav(
-                        isSelected = { route -> currentDestination?.hierarchy?.any { it.route == route } == true },
-                        onSelect = ::go,
-                    )
+                    NavBar(selectedIndex) { go(DESTINATIONS[it].route) }
                 }
             },
         ) { padding ->
@@ -223,67 +233,94 @@ private fun MainShell(vm: LibraryViewModel, container: AppContainer) {
 
         AnimatedVisibility(
             visible = showPlayer && playerState.hasMedia,
-            enter = slideInVertically(tween(380)) { it } + fadeIn(tween(380)),
-            exit = slideOutVertically(tween(280)) { it } + fadeOut(tween(280)),
+            enter = slideInVertically(tween(400)) { it } + fadeIn(tween(400)),
+            exit = slideOutVertically(tween(300)) { it } + fadeOut(tween(300)),
         ) {
             NowPlayingScreen(player = player, onClose = { showPlayer = false })
         }
     }
 }
 
-/** Floating pill bar. The selected item gets a tinted capsule and slides its label open. */
+/**
+ * Custom bottom bar instead of the stock pill: a single ember line slides between tabs on a
+ * spring, the selected icon lifts, labels are always visible in condensed caps.
+ */
 @Composable
-private fun FloatingNav(isSelected: (String) -> Boolean, onSelect: (String) -> Unit) {
-    val shape = RoundedCornerShape(30.dp)
-    Row(
-        modifier = Modifier
+private fun NavBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
+    val primary = MaterialTheme.colorScheme.primary
+    Column(
+        Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .navigationBarsPadding(),
     ) {
-        DESTINATIONS.forEach { d ->
-            NavItem(d, selected = isSelected(d.route)) { onSelect(d.route) }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(AppTheme.extended.hairline))
+        BoxWithConstraints(Modifier.fillMaxWidth().height(64.dp)) {
+            val itemWidth = maxWidth / DESTINATIONS.size
+            val density = LocalDensity.current
+            val position by animateFloatAsState(
+                targetValue = selectedIndex.toFloat(),
+                animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                label = "navIndicator",
+            )
+            Row(Modifier.fillMaxSize()) {
+                DESTINATIONS.forEachIndexed { i, d ->
+                    NavItem(d, isSelected = i == selectedIndex, modifier = Modifier.weight(1f)) { onSelect(i) }
+                }
+            }
+            Box(
+                Modifier
+                    .offset {
+                        val x = with(density) { (itemWidth * position + (itemWidth - 28.dp) / 2).roundToPx() }
+                        IntOffset(x, 0)
+                    }
+                    .width(28.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp))
+                    .background(primary),
+            )
         }
     }
 }
 
 @Composable
-private fun NavItem(d: Dest, selected: Boolean, onClick: () -> Unit) {
-    val bg by animateColorAsState(
-        targetValue = if (selected) Mint.copy(alpha = 0.16f) else Color.Transparent,
-        animationSpec = tween(250),
-        label = "navBg",
-    )
+private fun NavItem(d: Dest, isSelected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val tint by animateColorAsState(
-        targetValue = if (selected) Mint else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         animationSpec = tween(250),
         label = "navTint",
     )
-    Row(
-        modifier = Modifier
+    val lift by animateFloatAsState(
+        targetValue = if (isSelected) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
+        label = "navLift",
+    )
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
             .bouncyClick(onClick)
-            .clip(CircleShape)
-            .background(bg)
-            .padding(horizontal = 16.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .semantics {
+                role = Role.Tab
+                this.selected = isSelected
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
     ) {
-        Icon(d.icon, contentDescription = d.label, tint = tint, modifier = Modifier.size(24.dp))
-        AnimatedVisibility(
-            visible = selected,
-            enter = fadeIn(tween(250)) + expandHorizontally(tween(250)),
-            exit = fadeOut(tween(150)) + shrinkHorizontally(tween(200)),
-        ) {
-            Text(
-                text = d.label,
-                color = tint,
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
+        Icon(
+            imageVector = d.icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(24.dp).graphicsLayer {
+                translationY = -3.dp.toPx() * lift
+                scaleX = 1f + 0.12f * lift
+                scaleY = 1f + 0.12f * lift
+            },
+        )
+        Text(
+            text = d.label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            modifier = Modifier.padding(top = 3.dp),
+        )
     }
 }

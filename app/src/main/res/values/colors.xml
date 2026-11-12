@@ -1,3 +1,4 @@
 <resources>
-    <color name="ic_launcher_background">#FF0E0F11</color>
+    <color name="ic_launcher_background">#FF0C0A09</color>
+    <color name="zmusic_window_bg">#FFF6F1E9</color>
 </resources>
