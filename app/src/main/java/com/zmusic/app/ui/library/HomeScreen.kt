@@ -76,7 +76,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.Top,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Eyebrow("Zmusic \u00B7 ${dayPart().first}", color = MaterialTheme.colorScheme.primary)
+                        Eyebrow("Zmusic · ${dayPart().first}", color = MaterialTheme.colorScheme.primary)
                         Text(
                             text = dayPart().second,
                             style = MaterialTheme.typography.displayMedium,
@@ -206,7 +206,7 @@ private fun HeroCard(tracks: List<TrackEntity>, player: PlayerController, onOpen
                 )
             }
             Text(
-                "$albums albums \u00B7 $artists artists",
+                "$albums albums · $artists artists",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -223,7 +223,7 @@ private fun HeroCard(tracks: List<TrackEntity>, player: PlayerController, onOpen
             }
             Spacer(Modifier.height(6.dp))
             TextButton(onClick = onOpenLibrary, contentPadding = PaddingValues(0.dp)) {
-                Text("Browse library \u2192", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Browse library →", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -242,18 +242,17 @@ fun EmptyLibrary(scanning: Boolean, onRefresh: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        PrimaryButton(if (scanning) "Scanning\u2026" else "Scan again", Icons.Rounded.Refresh) {
+        PrimaryButton(if (scanning) "Scanning…" else "Scan again", Icons.Rounded.Refresh) {
             if (!scanning) onRefresh()
         }
     }
 }
 
 /** Same picks all day, different tomorrow. */
-@Composable
-private fun daily(tracks: List<TrackEntity>): List<TrackEntity> = remember(tracks) {
+private fun daily(tracks: List<TrackEntity>): List<TrackEntity> {
     val cal = Calendar.getInstance()
     val seed = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
-    tracks.shuffled(Random(seed)).take(25)
+    return tracks.shuffled(Random(seed)).take(25)
 }
 
 /** (eyebrow word, headline) for the time of day. */
