@@ -3,20 +3,23 @@ package com.zmusic.app.ui.library
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -26,27 +29,29 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
-import com.zmusic.app.ui.components.Aurora
+import com.zmusic.app.ui.components.Eyebrow
+import com.zmusic.app.ui.components.GhostButton
+import com.zmusic.app.ui.components.PrimaryButton
 import com.zmusic.app.ui.components.Reveal
 import com.zmusic.app.ui.components.TrackRow
-import com.zmusic.app.ui.components.bouncyClick
-import com.zmusic.app.ui.components.glass
-import com.zmusic.app.ui.theme.AccentGradient
-import com.zmusic.app.ui.theme.gradientTitleStyle
+import com.zmusic.app.ui.components.TypeTile
+import com.zmusic.app.ui.theme.AppTheme
+import com.zmusic.app.ui.theme.NumberStyle
+import com.zmusic.app.ui.theme.SignatureShape
 import java.util.Calendar
 import kotlin.random.Random
 
@@ -60,137 +65,167 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize()) {
-        Aurora(Modifier.fillMaxWidth().height(340.dp))
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
-        ) {
-            item {
-                Reveal(0) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                greeting(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text("Zmusic", style = gradientTitleStyle())
-                        }
-                        if (scanning) {
-                            CircularProgressIndicator(Modifier.size(24.dp).padding(end = 4.dp), strokeWidth = 2.dp)
-                        } else {
-                            IconButton(onClick = onRefresh) {
-                                Icon(Icons.Rounded.Refresh, contentDescription = "Rescan library")
-                            }
-                        }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 28.dp),
+    ) {
+        item {
+            Reveal(0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 24.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Eyebrow("Zmusic \u00B7 ${dayPart().first}", color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = dayPart().second,
+                            style = MaterialTheme.typography.displayMedium,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                     }
-                }
-            }
-
-            when {
-                tracks == null -> item {
-                    Row(Modifier.fillMaxWidth().padding(48.dp), horizontalArrangement = Arrangement.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                tracks.isEmpty() -> item { EmptyLibrary(scanning, onRefresh) }
-
-                else -> {
-                    item {
-                        Reveal(90) { HeroCard(tracks, player, onOpenLibrary) }
-                    }
-                    if (recent.isNotEmpty()) {
-                        item {
-                            Reveal(180) {
-                                Text(
-                                    "Recently added",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.padding(start = 20.dp, top = 28.dp, bottom = 6.dp),
-                                )
-                            }
-                        }
-                        itemsIndexed(recent, key = { _, t -> t.mediaStoreId }) { i, t ->
-                            TrackRow(
-                                track = t,
-                                isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
-                                isPlaying = playerState.isPlaying,
-                            ) {
-                                player.setShuffle(false)
-                                player.playQueue(recent, i)
-                            }
+                    if (scanning) {
+                        CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        IconButton(onClick = onRefresh) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "Rescan library")
                         }
                     }
                 }
             }
         }
+
+        when {
+            tracks == null -> item {
+                Row(Modifier.fillMaxWidth().padding(48.dp), horizontalArrangement = Arrangement.Center) {
+                    CircularProgressIndicator()
+                }
+            }
+
+            tracks.isEmpty() -> item { EmptyLibrary(scanning, onRefresh) }
+
+            else -> {
+                item { Reveal(110) { HeroCard(tracks, player, onOpenLibrary) } }
+
+                if (recent.isNotEmpty()) {
+                    item {
+                        Reveal(220) {
+                            Column {
+                                SectionHeader("Recently added", Modifier.padding(top = 36.dp, bottom = 14.dp))
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 20.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.Bottom,
+                                ) {
+                                    itemsIndexed(recent, key = { _, t -> t.mediaStoreId }) { i, t ->
+                                        // The first tile is the focal one: bigger than the rest.
+                                        val size = if (i == 0) Modifier.size(width = 200.dp, height = 250.dp)
+                                        else Modifier.size(width = 150.dp, height = 200.dp)
+                                        TypeTile(t.title, t.artist, size) {
+                                            player.setShuffle(false)
+                                            player.playQueue(recent, i)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // A stable-for-the-day pick so Home feels fresh without changing under your thumb.
+                val mix = daily(tracks)
+                item {
+                    Reveal(330) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 36.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SectionHeader("Today's mix", Modifier.weight(1f))
+                            TextButton(onClick = {
+                                player.setShuffle(false)
+                                player.playQueue(mix, 0)
+                            }) { Text("Play") }
+                        }
+                    }
+                }
+                itemsIndexed(mix.take(6), key = { _, t -> "mix-${t.mediaStoreId}" }) { i, t ->
+                    TrackRow(
+                        track = t,
+                        isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
+                        isPlaying = playerState.isPlaying,
+                    ) {
+                        player.setShuffle(false)
+                        player.playQueue(mix, i)
+                    }
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.headlineSmall,
+        modifier = modifier.padding(horizontal = 20.dp),
+    )
 }
 
 @Composable
 private fun HeroCard(tracks: List<TrackEntity>, player: PlayerController, onOpenLibrary: () -> Unit) {
     val albums = remember(tracks) { tracks.map { it.albumId }.distinct().size }
     val artists = remember(tracks) { tracks.map { it.artist }.distinct().size }
-    val count by animateIntAsState(tracks.size, tween(900), label = "songCount")
+    val count by animateIntAsState(tracks.size, tween(1000), label = "songCount")
+    val ext = AppTheme.extended
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .bouncyClick(onOpenLibrary)
-            .glass(RoundedCornerShape(28.dp))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = 20.dp, vertical = 20.dp)
+            .clip(SignatureShape)
+            .background(Brush.linearGradient(listOf(ext.heroStart, ext.heroEnd)))
+            .border(1.dp, ext.hairline, SignatureShape),
     ) {
-        Column {
+        // Oversized ghost numeral overlapping the card edge for depth.
+        Text(
+            text = count.toString(),
+            style = NumberStyle.copy(fontSize = 150.sp, lineHeight = 150.sp),
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            maxLines = 1,
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 28.dp, y = (-18).dp),
+        )
+        Column(Modifier.padding(24.dp)) {
+            Eyebrow("Your library")
+            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 4.dp)) {
+                Text(count.toString(), style = NumberStyle.copy(fontSize = 64.sp, lineHeight = 68.sp))
+                Text(
+                    " songs",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp, bottom = 12.dp),
+                )
+            }
             Text(
-                count.toString(),
-                style = TextStyle(fontSize = 52.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-2).sp, brush = AccentGradient),
-            )
-            Text(
-                "songs · $albums albums · $artists artists",
+                "$albums albums \u00B7 $artists artists",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PillButton("Play all", Icons.Rounded.PlayArrow, filled = true, modifier = Modifier.weight(1f)) {
-                player.setShuffle(false)
-                player.playQueue(tracks, 0)
+            Spacer(Modifier.height(22.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PrimaryButton("Play all", Icons.Rounded.PlayArrow) {
+                    player.setShuffle(false)
+                    player.playQueue(tracks, 0)
+                }
+                GhostButton("Shuffle", Icons.Rounded.Shuffle) {
+                    player.setShuffle(true)
+                    player.playQueue(tracks, Random.nextInt(tracks.size))
+                }
             }
-            PillButton("Shuffle", Icons.Rounded.Shuffle, filled = false, modifier = Modifier.weight(1f)) {
-                player.setShuffle(true)
-                player.playQueue(tracks, Random.nextInt(tracks.size))
+            Spacer(Modifier.height(6.dp))
+            TextButton(onClick = onOpenLibrary, contentPadding = PaddingValues(0.dp)) {
+                Text("Browse library \u2192", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    }
-}
-
-@Composable
-private fun PillButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    filled: Boolean,
-    modifier: Modifier,
-    onClick: () -> Unit,
-) {
-    val content = if (filled) Color(0xFF00201B) else MaterialTheme.colorScheme.onSurface
-    Row(
-        modifier = modifier
-            .height(48.dp)
-            .bouncyClick(onClick)
-            .clip(CircleShape)
-            .then(if (filled) Modifier.background(AccentGradient) else Modifier.glass(CircleShape)),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(20.dp))
-        Text("  $label", color = content, style = MaterialTheme.typography.titleMedium)
     }
 }
 
@@ -201,24 +236,30 @@ fun EmptyLibrary(scanning: Boolean, onRefresh: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("No music found", style = MaterialTheme.typography.titleMedium)
+        Text("No music found", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Zmusic looks for audio files on this device that Android has indexed. Add some music, then rescan.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        PillButton(
-            label = if (scanning) "Scanning…" else "Scan again",
-            icon = Icons.Rounded.Refresh,
-            filled = true,
-            modifier = Modifier.fillMaxWidth(0.6f),
-        ) { if (!scanning) onRefresh() }
+        PrimaryButton(if (scanning) "Scanning\u2026" else "Scan again", Icons.Rounded.Refresh) {
+            if (!scanning) onRefresh()
+        }
     }
 }
 
-private fun greeting(): String = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
-    in 5..11 -> "Good morning"
-    in 12..17 -> "Good afternoon"
-    in 18..22 -> "Good evening"
-    else -> "Late night listening"
+/** Same picks all day, different tomorrow. */
+@Composable
+private fun daily(tracks: List<TrackEntity>): List<TrackEntity> = remember(tracks) {
+    val cal = Calendar.getInstance()
+    val seed = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
+    tracks.shuffled(Random(seed)).take(25)
+}
+
+/** (eyebrow word, headline) for the time of day. */
+private fun dayPart(): Pair<String, String> = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+    in 5..11 -> "Morning" to "Start the day\nwith sound."
+    in 12..17 -> "Afternoon" to "Keep the\nmomentum going."
+    in 18..22 -> "Evening" to "Wind down\nin style."
+    else -> "Late night" to "Low lights,\nloud thoughts."
 }

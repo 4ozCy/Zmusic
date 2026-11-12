@@ -1,8 +1,11 @@
 package com.zmusic.app.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.border
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,41 +20,47 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
-import com.zmusic.app.ui.theme.AccentGradient
+import com.zmusic.app.ui.theme.AppTheme
+import com.zmusic.app.ui.theme.trackTint
 
+/** Docked (not floating) bar, washed with the current song's colour, progress as a thin top edge. */
 @Composable
 fun MiniPlayer(
     state: PlayerUiState,
     player: PlayerController,
     onOpen: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(24.dp)
+    val tint by animateColorAsState(
+        trackTint(state.title + state.artist, isSystemInDarkTheme()),
+        tween(600),
+        label = "miniTint",
+    )
+    val base = MaterialTheme.colorScheme.surfaceContainerHigh
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .bouncyClick(onOpen)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .border(1.dp, Color.White.copy(alpha = 0.09f), shape),
+            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .background(Brush.horizontalGradient(listOf(tint.copy(alpha = 0.26f), base)))
+            .clickable(onClickLabel = "Open player", onClick = onOpen),
     ) {
+        MiniProgress(player, state.durationMs)
         Row(
-            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 6.dp),
+            modifier = Modifier.padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            EqBars(state.isPlaying, Modifier.size(width = 26.dp, height = 22.dp), bars = 4)
-            Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            EqBars(state.isPlaying, tint, Modifier.size(width = 24.dp, height = 20.dp), bars = 4)
+            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                 Text(
                     text = state.title,
                     style = MaterialTheme.typography.titleMedium,
@@ -59,19 +68,18 @@ fun MiniPlayer(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = state.artist,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = state.artist.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            GradientPlayButton(playing = state.isPlaying, size = 40.dp) { player.togglePlayPause() }
+            PlayButton(playing = state.isPlaying, size = 44.dp) { player.togglePlayPause() }
             IconButton(onClick = { player.next() }) {
                 Icon(Icons.Rounded.SkipNext, contentDescription = "Next track")
             }
         }
-        MiniProgress(player, state.durationMs)
     }
 }
 
@@ -79,21 +87,11 @@ fun MiniPlayer(
 @Composable
 private fun MiniProgress(player: PlayerController, durationMs: Long) {
     val position = player.position.collectAsStateWithLifecycle(initialValue = 0L)
-    Canvas(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
-            .height(3.dp),
-    ) {
-        val radius = CornerRadius(size.height / 2f)
-        drawRoundRect(color = Color.White.copy(alpha = 0.08f), cornerRadius = radius)
+    val primary = MaterialTheme.colorScheme.primary
+    val track = AppTheme.extended.hairline
+    Canvas(Modifier.fillMaxWidth().height(2.dp)) {
+        drawRect(track)
         val f = if (durationMs > 0) (position.value.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-        if (f > 0f) {
-            drawRoundRect(
-                brush = AccentGradient,
-                size = Size(size.width * f, size.height),
-                cornerRadius = radius,
-            )
-        }
+        drawRect(primary, size = Size(size.width * f, size.height))
     }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zmusic.app.data.LibraryRepository
 import com.zmusic.app.data.TrackEntity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -24,6 +27,18 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val recentlyAdded: StateFlow<List<TrackEntity>> = repo.observeRecentlyAdded(15)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Most common artists, shown as quick chips on the Search screen. */
+    val topArtists: StateFlow<List<String>> = repo.observeAll()
+        .map { list ->
+            list.groupingBy { it.artist }.eachCount()
+                .filterKeys { it != "Unknown artist" }
+                .entries.sortedByDescending { it.value }
+                .take(12)
+                .map { it.key }
+        }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val scanning: StateFlow<Boolean> = repo.scanning
