@@ -11,3 +11,4 @@ local.properties
 *.aab
 *.jks
 *.keystore
+app/src/main/res/font/*.ttf
