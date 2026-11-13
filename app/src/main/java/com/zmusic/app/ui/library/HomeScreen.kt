@@ -113,7 +113,6 @@ fun HomeScreen(
                                     verticalAlignment = Alignment.Top,
                                 ) {
                                     itemsIndexed(recent, key = { _, t -> t.mediaStoreId }) { i, t ->
-                                        // The first tile is the focal one: larger than the rest.
                                         ArtTile(t, if (i == 0) 176.dp else 128.dp) {
                                             player.setShuffle(false)
                                             player.playQueue(recent, i)
@@ -125,20 +124,10 @@ fun HomeScreen(
                     }
                 }
 
-                // Same picks all day, different tomorrow.
                 val mix = daily(tracks)
                 item {
                     Reveal(300) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 40.dp, bottom = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("Today's mix", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                            TextAction("Play", Icons.Rounded.PlayArrow, accent = true) {
-                                player.setShuffle(false)
-                                player.playQueue(mix, 0)
-                            }
-                        }
+                        TodayMixHeader(mix, player)
                     }
                 }
                 itemsIndexed(mix.take(6), key = { _, t -> "mix-${t.mediaStoreId}" }) { i, t ->
@@ -152,6 +141,24 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TodayMixHeader(mix: List<TrackEntity>, player: PlayerController) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 40.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Today's mix",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.weight(1f),
+        )
+        TextAction("Play", Icons.Rounded.PlayArrow, accent = true) {
+            player.setShuffle(false)
+            player.playQueue(mix, 0)
         }
     }
 }
@@ -253,7 +260,7 @@ fun EmptyLibrary(scanning: Boolean, onRefresh: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
         )
-        TextAction(if (scanning) "Scanning\u2026" else "Scan again", Icons.Rounded.Refresh, accent = true) {
+        TextAction(if (scanning) "Scanning…" else "Scan again", Icons.Rounded.Refresh, accent = true) {
             if (!scanning) onRefresh()
         }
     }
