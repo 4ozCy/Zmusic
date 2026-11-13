@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -20,6 +21,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -47,12 +49,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -76,8 +80,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.zmusic.app.AppContainer
+import com.zmusic.app.playback.PlayerUiState
+import com.zmusic.app.ui.art.ArtworkCache
 import com.zmusic.app.ui.components.MiniPlayer
-import com.zmusic.app.ui.components.bouncyClick
+import com.zmusic.app.ui.components.pressClick
 import com.zmusic.app.ui.library.HomeScreen
 import com.zmusic.app.ui.library.LibraryScreen
 import com.zmusic.app.ui.library.LibraryViewModel
@@ -85,6 +91,9 @@ import com.zmusic.app.ui.library.PlaylistsScreen
 import com.zmusic.app.ui.library.SearchScreen
 import com.zmusic.app.ui.nowplaying.NowPlayingScreen
 import com.zmusic.app.ui.theme.AppTheme
+import com.zmusic.app.ui.theme.DefaultSeed
+import com.zmusic.app.ui.theme.ZmusicTheme
+import com.zmusic.app.ui.theme.seedFromText
 import kotlin.math.roundToInt
 
 private val AUDIO_PERMISSION = if (Build.VERSION.SDK_INT >= 33) {
@@ -138,30 +147,59 @@ fun ZmusicRoot(container: AppContainer) {
     }
 
     if (!granted) {
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            PermissionScreen(
-                denied = denied,
-                onAllow = { audioLauncher.launch(AUDIO_PERMISSION) },
-                onOpenSettings = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
-                    )
-                },
-            )
+        ZmusicTheme {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                PermissionScreen(
+                    denied = denied,
+                    onAllow = { audioLauncher.launch(AUDIO_PERMISSION) },
+                    onOpenSettings = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+                        )
+                    },
+                )
+            }
         }
     } else {
-        MainShell(vm, container)
+        SeededApp(vm, container)
+    }
+}
+
+/**
+ * Samples one muted seed colour from the current song's cover and feeds it to the theme, so the
+ * neutrals pick up a faint tint of whatever is playing. Songs without a cover get a stable muted seed.
+ */
+@Composable
+private fun SeededApp(vm: LibraryViewModel, container: AppContainer) {
+    val playerState by container.player.state.collectAsStateWithLifecycle()
+    val appContext = LocalContext.current.applicationContext
+    val fallback = remember(playerState.title, playerState.artist) {
+        seedFromText(playerState.title + playerState.artist)
+    }
+    val seed by produceState(initialValue = DefaultSeed, playerState.mediaId) {
+        value = if (playerState.mediaId == null) {
+            DefaultSeed
+        } else {
+            ArtworkCache.seed(appContext, playerState.trackUri, playerState.albumId) ?: fallback
+        }
+    }
+    ZmusicTheme(seed = seed) {
+        MainShell(vm, container, playerState, seed)
     }
 }
 
 @Composable
-private fun MainShell(vm: LibraryViewModel, container: AppContainer) {
+private fun MainShell(
+    vm: LibraryViewModel,
+    container: AppContainer,
+    playerState: PlayerUiState,
+    seed: Color,
+) {
     val player = container.player
     val tracks by vm.tracks.collectAsStateWithLifecycle()
     val recent by vm.recentlyAdded.collectAsStateWithLifecycle()
     val scanning by vm.scanning.collectAsStateWithLifecycle()
     val scanError by vm.scanError.collectAsStateWithLifecycle()
-    val playerState by player.state.collectAsStateWithLifecycle()
 
     val nav = rememberNavController()
     var showPlayer by rememberSaveable { mutableStateOf(false) }
@@ -187,8 +225,8 @@ private fun MainShell(vm: LibraryViewModel, container: AppContainer) {
                 Column {
                     AnimatedVisibility(
                         visible = playerState.hasMedia,
-                        enter = slideInVertically(tween(320)) { it } + fadeIn(tween(320)),
-                        exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(220)),
+                        enter = slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(320)),
+                        exit = slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
                     ) {
                         MiniPlayer(playerState, player) { showPlayer = true }
                     }
@@ -200,9 +238,9 @@ private fun MainShell(vm: LibraryViewModel, container: AppContainer) {
                 navController = nav,
                 startDestination = "home",
                 modifier = Modifier.padding(padding),
-                enterTransition = { fadeIn(tween(260)) + slideInVertically(tween(260)) { it / 40 } },
+                enterTransition = { fadeIn(tween(260)) + slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it / 40 } },
                 exitTransition = { fadeOut(tween(120)) },
-                popEnterTransition = { fadeIn(tween(260)) + slideInVertically(tween(260)) { it / 40 } },
+                popEnterTransition = { fadeIn(tween(260)) + slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it / 40 } },
                 popExitTransition = { fadeOut(tween(120)) },
             ) {
                 composable("home") {
@@ -233,17 +271,17 @@ private fun MainShell(vm: LibraryViewModel, container: AppContainer) {
 
         AnimatedVisibility(
             visible = showPlayer && playerState.hasMedia,
-            enter = slideInVertically(tween(400)) { it } + fadeIn(tween(400)),
-            exit = slideOutVertically(tween(300)) { it } + fadeOut(tween(300)),
+            enter = slideInVertically(tween(380, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(380)),
+            exit = slideOutVertically(tween(280, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(280)),
         ) {
-            NowPlayingScreen(player = player, onClose = { showPlayer = false })
+            NowPlayingScreen(player = player, seed = seed, onClose = { showPlayer = false })
         }
     }
 }
 
 /**
- * Custom bottom bar instead of the stock pill: a single ember line slides between tabs on a
- * spring, the selected icon lifts, labels are always visible in condensed caps.
+ * Bottom bar with no container: the page colour, a hairline on top, and one 28dp line that
+ * slides between tabs on a critically damped spring. Selected icon lifts a few dp.
  */
 @Composable
 private fun NavBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
@@ -251,16 +289,16 @@ private fun NavBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .background(MaterialTheme.colorScheme.background)
             .navigationBarsPadding(),
     ) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(AppTheme.extended.hairline))
+        Box(Modifier.fillMaxWidth().height(0.5.dp).background(AppTheme.extended.hairline))
         BoxWithConstraints(Modifier.fillMaxWidth().height(64.dp)) {
             val itemWidth = maxWidth / DESTINATIONS.size
             val density = LocalDensity.current
             val position by animateFloatAsState(
                 targetValue = selectedIndex.toFloat(),
-                animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow),
                 label = "navIndicator",
             )
             Row(Modifier.fillMaxSize()) {
@@ -275,8 +313,8 @@ private fun NavBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
                         IntOffset(x, 0)
                     }
                     .width(28.dp)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(bottomStart = 3.dp, bottomEnd = 3.dp))
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
                     .background(primary),
             )
         }
@@ -286,35 +324,31 @@ private fun NavBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
 @Composable
 private fun NavItem(d: Dest, isSelected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val tint by animateColorAsState(
-        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(250),
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
+        animationSpec = tween(220),
         label = "navTint",
     )
     val lift by animateFloatAsState(
         targetValue = if (isSelected) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium),
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
         label = "navLift",
     )
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .bouncyClick(onClick)
+            .pressClick(onClick)
             .semantics {
                 role = Role.Tab
                 this.selected = isSelected
             },
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        verticalArrangement = Arrangement.Center,
     ) {
         Icon(
             imageVector = d.icon,
             contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(24.dp).graphicsLayer {
-                translationY = -3.dp.toPx() * lift
-                scaleX = 1f + 0.12f * lift
-                scaleY = 1f + 0.12f * lift
-            },
+            modifier = Modifier.size(24.dp).graphicsLayer { translationY = -3.dp.toPx() * lift },
         )
         Text(
             text = d.label.uppercase(),

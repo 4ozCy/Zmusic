@@ -3,7 +3,6 @@ package com.zmusic.app.ui.library
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shuffle
@@ -29,29 +28,26 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
+import com.zmusic.app.ui.components.Artwork
 import com.zmusic.app.ui.components.Eyebrow
-import com.zmusic.app.ui.components.GhostButton
-import com.zmusic.app.ui.components.PrimaryButton
+import com.zmusic.app.ui.components.HairlineDivider
 import com.zmusic.app.ui.components.Reveal
+import com.zmusic.app.ui.components.TextAction
 import com.zmusic.app.ui.components.TrackRow
-import com.zmusic.app.ui.components.TypeTile
-import com.zmusic.app.ui.theme.AppTheme
+import com.zmusic.app.ui.components.pressClick
 import com.zmusic.app.ui.theme.NumberStyle
-import com.zmusic.app.ui.theme.SignatureShape
 import java.util.Calendar
 import kotlin.random.Random
 
@@ -67,16 +63,16 @@ fun HomeScreen(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 28.dp),
+        contentPadding = PaddingValues(bottom = 32.dp),
     ) {
         item {
             Reveal(0) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 28.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Eyebrow("Zmusic · ${dayPart().first}", color = MaterialTheme.colorScheme.primary)
+                        Eyebrow(dayPart().first, color = MaterialTheme.colorScheme.primary)
                         Text(
                             text = dayPart().second,
                             style = MaterialTheme.typography.displayMedium,
@@ -104,23 +100,21 @@ fun HomeScreen(
             tracks.isEmpty() -> item { EmptyLibrary(scanning, onRefresh) }
 
             else -> {
-                item { Reveal(110) { HeroCard(tracks, player, onOpenLibrary) } }
+                item { Reveal(100) { LibrarySummary(tracks, player, onOpenLibrary) } }
 
                 if (recent.isNotEmpty()) {
                     item {
-                        Reveal(220) {
+                        Reveal(200) {
                             Column {
-                                SectionHeader("Recently added", Modifier.padding(top = 36.dp, bottom = 14.dp))
+                                SectionTitle("Recently added", Modifier.padding(top = 36.dp, bottom = 16.dp))
                                 LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 20.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.Bottom,
+                                    contentPadding = PaddingValues(horizontal = 24.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.Top,
                                 ) {
                                     itemsIndexed(recent, key = { _, t -> t.mediaStoreId }) { i, t ->
-                                        // The first tile is the focal one: bigger than the rest.
-                                        val size = if (i == 0) Modifier.size(width = 200.dp, height = 250.dp)
-                                        else Modifier.size(width = 150.dp, height = 200.dp)
-                                        TypeTile(t.title, t.artist, size) {
+                                        // The first tile is the focal one: larger than the rest.
+                                        ArtTile(t, if (i == 0) 176.dp else 128.dp) {
                                             player.setShuffle(false)
                                             player.playQueue(recent, i)
                                         }
@@ -131,19 +125,19 @@ fun HomeScreen(
                     }
                 }
 
-                // A stable-for-the-day pick so Home feels fresh without changing under your thumb.
+                // Same picks all day, different tomorrow.
                 val mix = daily(tracks)
                 item {
-                    Reveal(330) {
+                    Reveal(300) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 36.dp, end = 8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 40.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            SectionHeader("Today's mix", Modifier.weight(1f))
-                            TextButton(onClick = {
+                            Text("Today's mix", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                            TextAction("Play", Icons.Rounded.PlayArrow, accent = true) {
                                 player.setShuffle(false)
                                 player.playQueue(mix, 0)
-                            }) { Text("Play") }
+                            }
                         }
                     }
                 }
@@ -163,96 +157,114 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
     Text(
         text = title,
         style = MaterialTheme.typography.headlineSmall,
-        modifier = modifier.padding(horizontal = 20.dp),
+        modifier = modifier.padding(horizontal = 24.dp),
+    )
+}
+
+/** No card: a big count, one line of detail, and text actions separated by a hairline. */
+@Composable
+private fun LibrarySummary(tracks: List<TrackEntity>, player: PlayerController, onOpenLibrary: () -> Unit) {
+    val albums = remember(tracks) { tracks.map { it.albumId }.distinct().size }
+    val artists = remember(tracks) { tracks.map { it.artist }.distinct().size }
+    val count by animateIntAsState(tracks.size, tween(900), label = "songCount")
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 36.dp)) {
+        HairlineDivider()
+        Spacer(Modifier.height(20.dp))
+        Eyebrow("Your library")
+        Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 4.dp)) {
+            Text(count.toString(), style = NumberStyle.copy(fontSize = 72.sp, lineHeight = 76.sp))
+            Text(
+                " songs",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
+                modifier = Modifier.padding(start = 6.dp, bottom = 14.dp),
+            )
+        }
+        Text(
+            "$albums albums \u00B7 $artists artists",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextAction("Play all", Icons.Rounded.PlayArrow, accent = true) {
+                player.setShuffle(false)
+                player.playQueue(tracks, 0)
+            }
+            Divider()
+            TextAction("Shuffle", Icons.Rounded.Shuffle) {
+                player.setShuffle(true)
+                player.playQueue(tracks, Random.nextInt(tracks.size))
+            }
+            Divider()
+            TextAction("Browse", Icons.Rounded.LibraryMusic, onClick = onOpenLibrary)
+        }
+        Spacer(Modifier.height(8.dp))
+        HairlineDivider()
+    }
+}
+
+@Composable
+private fun Divider() {
+    Box(
+        Modifier
+            .padding(horizontal = 16.dp)
+            .width(0.5.dp)
+            .height(20.dp)
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)),
     )
 }
 
 @Composable
-private fun HeroCard(tracks: List<TrackEntity>, player: PlayerController, onOpenLibrary: () -> Unit) {
-    val albums = remember(tracks) { tracks.map { it.albumId }.distinct().size }
-    val artists = remember(tracks) { tracks.map { it.artist }.distinct().size }
-    val count by animateIntAsState(tracks.size, tween(1000), label = "songCount")
-    val ext = AppTheme.extended
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 20.dp)
-            .clip(SignatureShape)
-            .background(Brush.linearGradient(listOf(ext.heroStart, ext.heroEnd)))
-            .border(1.dp, ext.hairline, SignatureShape),
-    ) {
-        // Oversized ghost numeral overlapping the card edge for depth.
+private fun ArtTile(track: TrackEntity, size: Dp, onClick: () -> Unit) {
+    Column(Modifier.width(size).pressClick(onClick)) {
+        Artwork(track.albumId, track.uri, Modifier.size(size), corner = 10.dp, px = 256)
         Text(
-            text = count.toString(),
-            style = NumberStyle.copy(fontSize = 150.sp, lineHeight = 150.sp),
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            text = track.title,
+            style = MaterialTheme.typography.titleSmall,
             maxLines = 1,
-            modifier = Modifier.align(Alignment.TopEnd).offset(x = 28.dp, y = (-18).dp),
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 10.dp),
         )
-        Column(Modifier.padding(24.dp)) {
-            Eyebrow("Your library")
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 4.dp)) {
-                Text(count.toString(), style = NumberStyle.copy(fontSize = 64.sp, lineHeight = 68.sp))
-                Text(
-                    " songs",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 6.dp, bottom = 12.dp),
-                )
-            }
-            Text(
-                "$albums albums · $artists artists",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(22.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryButton("Play all", Icons.Rounded.PlayArrow) {
-                    player.setShuffle(false)
-                    player.playQueue(tracks, 0)
-                }
-                GhostButton("Shuffle", Icons.Rounded.Shuffle) {
-                    player.setShuffle(true)
-                    player.playQueue(tracks, Random.nextInt(tracks.size))
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            TextButton(onClick = onOpenLibrary, contentPadding = PaddingValues(0.dp)) {
-                Text("Browse library →", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        Text(
+            text = track.artist,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
 @Composable
 fun EmptyLibrary(scanning: Boolean, onRefresh: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.fillMaxWidth().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("No music found", style = MaterialTheme.typography.headlineSmall)
         Text(
             "Zmusic looks for audio files on this device that Android has indexed. Add some music, then rescan.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
         )
-        PrimaryButton(if (scanning) "Scanning…" else "Scan again", Icons.Rounded.Refresh) {
+        TextAction(if (scanning) "Scanning\u2026" else "Scan again", Icons.Rounded.Refresh, accent = true) {
             if (!scanning) onRefresh()
         }
     }
 }
 
 /** Same picks all day, different tomorrow. */
-private fun daily(tracks: List<TrackEntity>): List<TrackEntity> {
+@Composable
+private fun daily(tracks: List<TrackEntity>): List<TrackEntity> = remember(tracks) {
     val cal = Calendar.getInstance()
     val seed = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
-    return tracks.shuffled(Random(seed)).take(25)
+    tracks.shuffled(Random(seed)).take(25)
 }
 
 /** (eyebrow word, headline) for the time of day. */

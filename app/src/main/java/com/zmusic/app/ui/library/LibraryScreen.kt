@@ -29,8 +29,7 @@ import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.Eyebrow
 import com.zmusic.app.ui.components.TrackRow
-import com.zmusic.app.ui.theme.AppTheme
-import com.zmusic.app.ui.theme.NumberStyle
+import com.zmusic.app.ui.theme.TimeStyle
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -44,7 +43,7 @@ fun LibraryScreen(
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 24.dp, bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             Column(Modifier.weight(1f)) {
@@ -63,7 +62,7 @@ fun LibraryScreen(
                 text = "Scan problem: $scanError",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
             )
         }
 
@@ -77,14 +76,13 @@ fun LibraryScreen(
             tracks.isEmpty() -> EmptyLibrary(scanning, onRefresh)
 
             else -> {
-                // Tracks arrive sorted by title, so letter groups are contiguous. Keep each song's
+                // Tracks arrive sorted by title, so letter groups are contiguous. Each song keeps its
                 // index in the full list so tapping plays from the right place.
                 val groups = remember(tracks) {
                     tracks.withIndex().groupBy { iv ->
                         iv.value.title.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString() ?: "#"
                     }
                 }
-                val hairline = AppTheme.extended.hairline
                 LazyColumn(Modifier.fillMaxSize()) {
                     groups.forEach { (letter, rows) ->
                         stickyHeader(key = "h-$letter") {
@@ -92,15 +90,19 @@ fun LibraryScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(MaterialTheme.colorScheme.background)
-                                    .padding(start = 20.dp, top = 14.dp, bottom = 4.dp),
+                                    .padding(start = 24.dp, top = 14.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.Bottom,
                             ) {
-                                Text(letter, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    letter,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                )
                                 Text(
                                     text = "  ${rows.size}",
-                                    style = NumberStyle.copy(fontSize = 12.sp, letterSpacing = 0.sp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(bottom = 4.dp),
+                                    style = TimeStyle.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.40f),
+                                    modifier = Modifier.padding(bottom = 5.dp),
                                 )
                             }
                         }

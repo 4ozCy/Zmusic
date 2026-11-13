@@ -15,7 +15,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +33,7 @@ import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.Eyebrow
 import com.zmusic.app.ui.components.TrackRow
+import com.zmusic.app.ui.components.pressClick
 
 @Composable
 fun SearchScreen(
@@ -45,17 +45,18 @@ fun SearchScreen(
     val results by vm.searchResults.collectAsStateWithLifecycle()
     val artists by vm.topArtists.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
+    val hairline = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)
 
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 16.dp)) {
+        Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 12.dp)) {
             Eyebrow("Find anything", color = MaterialTheme.colorScheme.primary)
             Text("Search", style = MaterialTheme.typography.displayMedium, modifier = Modifier.padding(top = 4.dp))
         }
+        // No box: just a field with a hairline underline that turns to the accent on focus.
         TextField(
             value = query,
             onValueChange = vm::setQuery,
             singleLine = true,
-            shape = MaterialTheme.shapes.medium,
             placeholder = { Text("Songs, artists, albums") },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             trailingIcon = {
@@ -66,30 +67,31 @@ fun SearchScreen(
                 }
             },
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                unfocusedIndicatorColor = hairline,
                 cursorColor = MaterialTheme.colorScheme.primary,
             ),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         )
 
         when {
             query.isBlank() -> {
                 if (artists.isNotEmpty()) {
-                    Eyebrow("Your top artists", modifier = Modifier.padding(start = 20.dp, top = 28.dp, bottom = 10.dp))
+                    Eyebrow("Your top artists", modifier = Modifier.padding(start = 24.dp, top = 32.dp, bottom = 4.dp))
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
                     ) {
                         items(artists, key = { it }) { name ->
-                            AssistChip(
-                                onClick = { vm.setQuery(name) },
-                                label = { Text(name) },
-                                shape = MaterialTheme.shapes.small,
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f),
+                                modifier = Modifier.pressClick { vm.setQuery(name) }.padding(vertical = 14.dp),
                             )
                         }
                     }
@@ -122,7 +124,7 @@ private fun Hint(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
         modifier = Modifier.padding(24.dp),
     )
 }
