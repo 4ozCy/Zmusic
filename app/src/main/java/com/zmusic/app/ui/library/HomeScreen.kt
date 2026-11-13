@@ -61,6 +61,8 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onRefresh: () -> Unit,
 ) {
+    val mix = if (tracks == null) emptyList() else daily(tracks)
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 32.dp),
@@ -124,7 +126,6 @@ fun HomeScreen(
                     }
                 }
 
-                val mix = daily(tracks)
                 item {
                     Reveal(300) {
                         TodayMixHeader(mix, player)
