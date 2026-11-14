@@ -31,10 +31,10 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     /** Screen-space points, 8 floats per primitive: a quad's four corners, or a line's two ends. */
     val xy = FloatArray(count * 8)
 
-    /** Quad: its flat cel tone. Line: its colour; zero alpha means "skip". */
+    /** Quad: its shaded colour. Line: its colour; zero alpha means "skip". */
     val fill = IntArray(count)
 
-    /** Quad only: the ink line drawn along both rims. */
+    /** Quad only: the bevel line drawn along both rims. */
     val edge = IntArray(count)
     val width = FloatArray(count)
 
@@ -135,14 +135,18 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     }
 
     /**
-     * One hoop, cel shaded: the Lambert term is snapped to three flat tones (shadow, base, light)
-     * and the Blinn highlight to a hard white streak, so tone edges are crisp lines across the
-     * band instead of a gradient. Treble widens the streak.
+     * One hoop, shaded as a single continuous piece of polished metal. The Lambert term runs
+     * through a smoothstep and blends shadow -> base -> light with no steps, and the Blinn
+     * highlight feathers into the surface, so nothing along the band reads as a seam between
+     * parts. Treble widens the sheen.
      */
     private fun ring(index: Int, m: FloatArray, radius: Float, t: Float, treble: Float) {
         val hw = HALF_WIDTH[index]
         val pal = index * 12
-        val ink = argb(1f, TONES[pal], TONES[pal + 1], TONES[pal + 2])
+        val inkR = TONES[pal]
+        val inkG = TONES[pal + 1]
+        val inkB = TONES[pal + 2]
+        val sheenGain = 0.55f + 0.90f * treble
         val base = index * segments
         var glintX = 0f
         var glintY = 0f
@@ -171,25 +175,42 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
             if (inside) {
                 nx = -nx; ny = -ny; nz = -nz
             }
-            val diffuse = max(0f, nx * LX + ny * LY + nz * LZ)
-            val gloss = max(0f, nx * HX + ny * HY + nz * HZ).pow(28f)
-            val spec = gloss * (0.55f + 0.90f * treble)
+            val diffuse = nx * LX + ny * LY + nz * LZ
+            val gloss = max(0f, nx * HX + ny * HY + nz * HZ).pow(GLOSS)
 
-            // Tone index: 1 shadow, 2 base, 3 light. The inside wall sits one step down.
-            var tone = if (diffuse > LIGHT_AT) 3 else if (diffuse > BASE_AT) 2 else 1
-            var dim = 1f
-            if (inside) {
-                if (tone > 1) tone-- else dim = 0.72f
+            // Continuous tone, 0 = shadow, 0.5 = base, 1 = light, wrapped a little past the
+            // terminator so the unlit side falls off gently. Both walls are lit at this point
+            // on the hoop: the one we see, and the one on the other side of the metal.
+            val seen = smooth((diffuse + WRAP) / (1f + WRAP))
+            val hidden = smooth((WRAP - diffuse) / (1f + WRAP))
+            // The inside wall sits in the hoop's own shade.
+            val side = if (inside) seen * INNER_TONE else seen
+            val fold = (side + (if (inside) hidden else hidden * INNER_TONE)) * 0.5f
+            // Where the band turns over (normal at right angles to the eye) the outside and
+            // inside walls meet. Ease both toward their shared average there, so the turn is a
+            // soft roll of the same ribbon instead of a hard join between two pieces.
+            val facing = smooth(nz / FOLD)
+            val k = fold + (side - fold) * facing
+            // Depth cue: the far side sinks a little.
+            val dim = (0.80f + 0.20f * ((z + 1.2f) / 2.4f).coerceIn(0f, 1f)) *
+                (FOLD_DIM + ((if (inside) INNER_DIM else 1f) - FOLD_DIM) * facing)
+            val q = if (k < 0.5f) pal + 3 else pal + 6
+            val f = if (k < 0.5f) k * 2f else (k - 0.5f) * 2f
+            var r = (TONES[q] + (TONES[q + 3] - TONES[q]) * f) * dim
+            var g = (TONES[q + 1] + (TONES[q + 4] - TONES[q + 1]) * f) * dim
+            var b = (TONES[q + 2] + (TONES[q + 5] - TONES[q + 2]) * f) * dim
+
+            // Sheen: feathered into the surface rather than cut out of it.
+            if (!inside) {
+                val sheen = facing * smooth((gloss * sheenGain - 0.06f) / 0.62f)
+                r += (HIGHLIGHT_R - r) * sheen
+                g += (HIGHLIGHT_G - g) * sheen
+                b += (HIGHLIGHT_B - b) * sheen
             }
-            // Depth cue, kept slight so the tones stay flat: the far side sinks a little.
-            dim *= 0.80f + 0.20f * ((z + 1.2f) / 2.4f).coerceIn(0f, 1f)
-            if (!inside && spec > 0.5f) {
-                fill[p] = HIGHLIGHT
-            } else {
-                val q = pal + tone * 3
-                fill[p] = argb(1f, TONES[q] * dim, TONES[q + 1] * dim, TONES[q + 2] * dim)
-            }
-            edge[p] = ink
+            fill[p] = argb(1f, r, g, b)
+            // The rim follows the surface tone, pulled toward the ink colour: a bevel, not an
+            // outline. It is still what keeps a hoop visible when it turns exactly edge-on.
+            edge[p] = argb(1f, inkR + (r - inkR) * RIM, inkG + (g - inkG) * RIM, inkB + (b - inkB) * RIM)
 
             if (!inside) {
                 // Glint position: centroid of the highlight, so it glides instead of hopping faces.
@@ -208,6 +229,12 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         } else {
             glintSize[index] = 0f
         }
+    }
+
+    /** Hermite smoothstep of [v] clamped to 0..1. */
+    private fun smooth(v: Float): Float {
+        val x = if (v < 0f) 0f else if (v > 1f) 1f else v
+        return x * x * (3f - 2f * x)
     }
 
     /** Spectrum ticks standing radially in the sculpture's own equatorial (XZ) plane. */
@@ -350,9 +377,9 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private companion object {
         const val RINGS = 3
         const val TICKS = 72
-        const val ARCS = 40
+        const val ARCS = 96
         const val DASHES = 24
-        const val WAVE = 60
+        const val WAVE = 96
         const val WAVE_SECONDS = 0.75f
         const val CAMERA = 3.4f
         const val HALO_RADIUS = 1.30f
@@ -360,12 +387,29 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         const val DASH_RADIUS = 1.19f
         const val TWO_PI = 6.2831855f
 
-        /** Lambert thresholds where the cel tone steps up. */
-        const val BASE_AT = 0.20f
-        const val LIGHT_AT = 0.60f
+        /** How far the light wraps past the terminator. Softens the shadow side of a hoop. */
+        const val WRAP = 0.35f
 
-        /** The hard specular streak: warm paper white. */
-        const val HIGHLIGHT = 0xFFFFFBF2.toInt()
+        /** Blinn exponent. Lower is a broader, softer sheen. */
+        const val GLOSS = 14f
+
+        /** Tone and brightness of the inside wall relative to the outside. */
+        const val INNER_TONE = 0.60f
+        const val INNER_DIM = 0.88f
+
+        /** Brightness exactly on the turn-over: halfway between the two walls. */
+        const val FOLD_DIM = 0.94f
+
+        /** How far (in normal z) the turn-over blend reaches round the hoop. */
+        const val FOLD = 0.30f
+
+        /** How much of the surface tone the rim keeps; the rest is the hoop's ink colour. */
+        const val RIM = 0.50f
+
+        /** The sheen: warm paper white. */
+        const val HIGHLIGHT_R = 1.00f
+        const val HIGHLIGHT_G = 0.984f
+        const val HIGHLIGHT_B = 0.949f
 
         val RADIUS = floatArrayOf(1.00f, 0.76f, 0.52f)
         val HALF_WIDTH = floatArrayOf(0.080f, 0.070f, 0.060f)
@@ -374,8 +418,9 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         val SPEED = floatArrayOf(0.42f, -0.66f, 1.05f)
 
         /**
-         * Cel palette, four RGB tones per hoop: ink line, shadow, base, light. Shadows lean cool
-         * and lights lean warm, the way painted cels do. Hoops: moon silver, amber gold, indigo.
+         * Palette, four RGB tones per hoop: rim ink, shadow, base, light, blended continuously
+         * across the band. Shadows lean cool and lights lean warm. Hoops: moon silver, amber
+         * gold, indigo.
          */
         val TONES = floatArrayOf(
             0.20f, 0.21f, 0.38f, 0.42f, 0.44f, 0.66f, 0.76f, 0.78f, 0.90f, 0.95f, 0.95f, 0.98f,

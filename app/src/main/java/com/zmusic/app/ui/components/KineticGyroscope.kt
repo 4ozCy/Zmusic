@@ -21,22 +21,22 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * The Now Playing centrepiece, standing where album art would be: an acoustic gyroscope, drawn
- * like an anime cel.
+ * The Now Playing centrepiece, standing where album art would be: an acoustic gyroscope in
+ * polished metal.
  *
  * Three nested hoops, each a real cylindrical band in 3D, gimballed inside one another (outer
  * turns about X, the middle about Y inside the outer's frame, the inner about X inside the
  * middle's), floating over a tilted magic circle of spectrum ticks, with a four-point star
  * burning at the centre. The geometry is true 3D (every vertex is rotated by 3x3 matrices,
- * projected with a perspective divide and painted back to front after a depth sort) but the
- * shading is toon: flat shadow / base / light tones with hard edges, a hard white specular
- * streak, an ink line along every rim, and a star glint sitting on each highlight.
+ * projected with a perspective divide and painted back to front after a depth sort). Each hoop
+ * is shaded as one continuous piece: tone and sheen blend smoothly all the way round, a bevel
+ * line runs along every rim, and a star glint sits on each highlight.
  *
  * Audio mapping:
  * - mid    -> how fast the gimbals turn
  * - bass   -> hoop radius (they breathe outward on a kick), star size, outer glow strength;
  *             a sharp kick also throws a shockwave ring out through the magic circle
- * - treble -> how wide the specular streaks open and how big the glints flare
+ * - treble -> how wide the sheen opens and how big the glints flare
  * - the twelve analysed bands -> tick lengths, mirrored left and right
  *
  * Cost: all geometry lives in arrays allocated once in [GyroModel]; a frame allocates nothing and
@@ -44,13 +44,13 @@ import kotlin.math.sin
  *
  * @param halo draw the magic circle, glints and shockwave. Turn it off for small sizes (mini
  *   player, brand mark).
- * @param segments faces per hoop. 72 keeps the tone edges fine at hero size; 24 is plenty below ~64dp.
+ * @param segments faces per hoop. 120 keeps the shading stepless at hero size; 36 is plenty below ~64dp.
  */
 @Composable
 fun KineticGyroscope(
     modifier: Modifier = Modifier,
     halo: Boolean = true,
-    segments: Int = 72,
+    segments: Int = 120,
 ) {
     val tracker = LocalAudioTracker.current
     val model = remember(segments, halo) { GyroModel(segments, halo) }
@@ -124,7 +124,7 @@ fun KineticGyroscope(
                             path.lineTo(xy[o + 6], xy[o + 7])
                             path.close()
                             drawPath(path, Color(model.fill[i]))
-                            // Ink along both rims: the cel outline, and what keeps a hoop visible
+                            // Bevel along both rims: finishes the edge, and keeps a hoop visible
                             // when it turns exactly edge-on to the viewer.
                             val line = Color(model.edge[i])
                             drawLine(line, Offset(xy[o], xy[o + 1]), Offset(xy[o + 2], xy[o + 3]), ink, StrokeCap.Round)
@@ -133,7 +133,7 @@ fun KineticGyroscope(
                     }
                 }
 
-                // Glints ride on top of everything, like a highlight painted on the cel last.
+                // Glints ride on top of everything.
                 for (g in 0 until model.glintSize.size) {
                     val s = model.glintSize[g]
                     if (s > 0.5f) {

@@ -31,7 +31,7 @@ fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () ->
             verticalArrangement = Arrangement.Center,
         ) {
             // The idle gyroscope doubles as the brand mark; it is the same sculpture that comes alive on playback.
-            Reveal(0) { KineticGyroscope(Modifier.padding(bottom = 28.dp).size(104.dp), halo = false, segments = 36) }
+            Reveal(0) { KineticGyroscope(Modifier.padding(bottom = 28.dp).size(104.dp), halo = false, segments = 60) }
             Reveal(80) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Eyebrow("Zmusic", color = MaterialTheme.colorScheme.primary)

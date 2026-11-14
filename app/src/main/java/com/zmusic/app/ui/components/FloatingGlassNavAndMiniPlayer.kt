@@ -285,7 +285,7 @@ private fun GlassMiniPlayer(
             .padding(start = 10.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        KineticGyroscope(Modifier.size(44.dp), halo = false, segments = 24)
+        KineticGyroscope(Modifier.size(44.dp), halo = false, segments = 36)
         // Crossfade the text on track change so the bar never jumps.
         Crossfade(
             targetState = state.title to state.artist,
