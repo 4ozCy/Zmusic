@@ -3,6 +3,7 @@
 package com.zmusic.app.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -82,7 +83,7 @@ private val Scheme = darkColorScheme(
     outline = Color(0xFF4A4B52),
     outlineVariant = Color(0xFF26272D),
     error = Color(0xFFE8857A),
-    onError = Nocturne.Obsidian,
+    onError = Color.White,
 )
 
 /** Roles Material 3 has no slot for. */
@@ -98,6 +99,12 @@ data class ExtendedColors(
     val indigo: Color,
     /** Mid tone between the two lights. */
     val slate: Color,
+    /** Primary type: pure white. */
+    val text: Color,
+    /** Secondary type: white, turned down so titles still lead. */
+    val textSoft: Color,
+    /** Tertiary type: durations, counts, row numbers. Still white, quieter again. */
+    val textDim: Color,
 )
 
 private val Extended = ExtendedColors(
@@ -106,6 +113,9 @@ private val Extended = ExtendedColors(
     amber = Nocturne.Amber,
     indigo = Nocturne.Indigo,
     slate = Nocturne.Slate,
+    text = Color.White,
+    textSoft = Color.White.copy(alpha = 0.76f),
+    textDim = Color.White.copy(alpha = 0.58f),
 )
 
 private val LocalExtended = staticCompositionLocalOf { Extended }
@@ -185,7 +195,11 @@ fun ZmusicTheme(content: @Composable () -> Unit) {
             colorScheme = Scheme,
             typography = AppTypography,
             shapes = AppShapes,
-            content = content,
-        )
+        ) {
+            // Material's default content colour is black unless a Surface sets it, and this app
+            // draws on bare glass with no Surface. Without this, any Text that does not name a
+            // colour comes out black on the dark backdrop.
+            CompositionLocalProvider(LocalContentColor provides Color.White, content = content)
+        }
     }
 }

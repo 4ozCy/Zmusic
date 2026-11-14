@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zmusic.app.data.TrackEntity
+import com.zmusic.app.debug.BugLog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,6 +60,8 @@ class PlayerController(context: Context) {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            val title = controller?.currentMediaItem?.mediaMetadata?.title ?: "unknown track"
+            BugLog.e("Playback", "${error.errorCodeName} while playing \"$title\": ${error.message}", error)
             // Corrupt/unsupported file: skip to the next track instead of getting stuck.
             val c = controller ?: return
             if (c.hasNextMediaItem()) {
@@ -73,7 +76,9 @@ class PlayerController(context: Context) {
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         val future = MediaController.Builder(context, token).buildAsync()
         future.addListener({
-            val c = runCatching { future.get() }.getOrNull() ?: return@addListener
+            val c = runCatching { future.get() }
+                .onFailure { BugLog.e("Playback", "Could not connect to the playback service", it) }
+                .getOrNull() ?: return@addListener
             controller = c
             c.addListener(listener)
             sync(c, rebuildQueue = true)

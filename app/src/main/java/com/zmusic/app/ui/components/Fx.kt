@@ -40,11 +40,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -54,6 +55,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.ui.theme.AppTheme
+import com.zmusic.app.ui.theme.Nocturne
 
 /*
  * Motion rules for this app:
@@ -138,7 +140,7 @@ fun Reveal(delayMs: Int, content: @Composable () -> Unit) {
 fun Eyebrow(
     text: String,
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    color: Color = AppTheme.extended.textSoft,
 ) {
     Text(text.uppercase(), style = MaterialTheme.typography.labelMedium, color = color, modifier = modifier)
 }
@@ -149,7 +151,10 @@ fun HairlineDivider(modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth().height(0.5.dp).background(AppTheme.extended.hairline))
 }
 
-/** Top of every tab: accent eyebrow, display title, and an optional action on the right. */
+/**
+ * Top of every tab: accent eyebrow, white display title, a short bar of light under it that
+ * stretches with the bass, and an optional action on the right.
+ */
 @Composable
 fun ScreenHeader(
     eyebrow: String,
@@ -163,10 +168,33 @@ fun ScreenHeader(
     ) {
         Column(Modifier.weight(1f)) {
             Eyebrow(eyebrow, color = MaterialTheme.colorScheme.primary)
-            Text(title, style = MaterialTheme.typography.displayMedium, modifier = Modifier.padding(top = 6.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.displayMedium,
+                color = AppTheme.extended.text,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            PulseBar(Modifier.padding(top = 14.dp))
         }
         action()
     }
+}
+
+/** The header's accent: an amber-to-indigo bar that is 40% long at rest and fills out on a kick. */
+@Composable
+private fun PulseBar(modifier: Modifier = Modifier) {
+    val tracker = LocalAudioTracker.current
+    Box(
+        modifier.size(width = 76.dp, height = 3.dp).drawWithCache {
+            val light = Brush.horizontalGradient(listOf(Nocturne.Amber, Nocturne.Indigo))
+            val radius = CornerRadius(size.height / 2f)
+            onDrawBehind {
+                tracker.frame.longValue // redraw every frame without recomposing
+                val w = size.width * (0.40f + 0.60f * tracker.bass.value)
+                drawRoundRect(light, size = Size(w, size.height), cornerRadius = radius)
+            }
+        },
+    )
 }
 
 /** Rescan the library. A small glass button that turns into a spinner while a scan is running. */
@@ -208,7 +236,7 @@ fun TextAction(
     accent: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    val color = if (accent) MaterialTheme.colorScheme.primary else AppTheme.extended.text
     Row(
         modifier = modifier.heightIn(min = 48.dp).pressClick(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,

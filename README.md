@@ -10,12 +10,14 @@ Offline-first Android music player. Kotlin, Jetpack Compose (Material 3), Media3
 
 Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#070709`) is lit from behind by slow aurora light that follows the music; a few panes of smoked frosted glass float in front of it. The app is dark-only on purpose.
 
-- Palette: obsidian `#070709`, smoked glass `#14151A`, alabaster type `#F5F5F7`, silver secondary `#8E8E93`. Amber is the one accent (current song, primary action). Indigo only ever appears as light.
+- Palette: obsidian `#070709`, smoked glass `#14151A`. All type is white: full strength for titles, 76% for secondary lines, 58% for counts and durations. Amber is the one accent (current song, primary action). Indigo only ever appears as light.
 - No album covers and no lyrics anywhere. Type is Manrope; timestamps, counts and index numerals are JetBrains Mono.
 - Glass is reserved for things that float: the navigation dock, the mini player, the action pills, the "Recently added" tiles and the Now Playing sheet. List rows are bare type.
 - The dock, mini player and sheet blur what is behind them live ([Haze](https://github.com/chrisbanes/haze), `RenderEffect`, Android 12L+; older versions get near-solid smoked glass).
 - Motion is spring-driven. Tiles tilt in 3D under your finger, the dock lozenge slides between tabs, the sheet rises while un-tilting in perspective.
 - Now Playing shows a procedural 3D gyroscope instead of artwork: three gimballed metal hoops and a spectrum halo, built from real vertices with perspective projection, smooth per-vertex lighting and depth sorting on a Compose `Canvas`.
+- The backdrop has depth: two aurora curtains wave across the orbs, the bass pushes a ring of light out of the warm one, stardust drifts upward in front, and a shooting star crosses every 11 seconds.
+- The current song's row lights up with a wash of amber, screen titles carry a bar of light that stretches with the bass, and the dock's selected tab has an amber filament that does the same.
 - Honours the system "remove animations" setting (decorative motion stops).
 
 ### Audio-reactive visuals
@@ -28,13 +30,17 @@ Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#0707
 
 The backdrop is an AGSL `RuntimeShader` on Android 13+ and an equivalent Canvas gradient version below that.
 
+### Bug log
+
+The fourth tab is a console. `BugLog` records crashes (uncaught exceptions, written to disk before the process dies, so they are there on the next launch), playback errors, library scan failures, warnings such as a rejected shader or Visualizer, and a few milestones for context. Lines are timestamped and colour-coded by level, filterable, and a line with a stack trace expands when tapped. The log follows new output like a terminal, can be copied or cleared, keeps the last 400 entries, and never leaves the device. The Bugs tab shows a red dot while there is an error you have not looked at.
+
 ## What works
 
 - MediaStore scan into Room, stable IDs, missing files flagged instead of deleted, scan throttle, manual rescan
 - Permission flow that explains first
 - Single ExoPlayer in `PlaybackService`: background playback, notification and lock-screen controls, audio focus, becoming-noisy handling
 - Queue (view, jump, remove), shuffle, repeat off/all/one
-- Home (daily mix, recently added), Library (A-Z with a jump rail), Search (debounced, top-artist links), mini player, Now Playing
+- Home (library counters, daily mix, recently added), Library (A-Z with a jump rail), Search (debounced, top-artist links), Bugs (console), mini player, Now Playing
 - Large libraries queue a window around the tapped song (100 before, 300 after)
 
 ## Not built yet
@@ -55,6 +61,7 @@ Gradle 8.9, JDK 17: `gradle assembleDebug`. Compose previews (light and dark) ar
 ```
 app/src/main/java/com/zmusic/app/
   data/        Room entity, DAO, database, MediaStore scanner, repository
+  debug/       BugLog: the in-app console's store and crash handler
   playback/    PlaybackService, PlayerController, LevelAudioProcessor, AudioLevels
   ui/theme/    seed-based colour schemes, type, shapes
   ui/components/  motion primitives, audio-reactive visuals, scrubber, backdrop, rows, mini player

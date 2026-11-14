@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
@@ -35,6 +36,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -57,7 +59,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.zmusic.app.AppContainer
+import com.zmusic.app.debug.BugLog
 import com.zmusic.app.playback.PlayerUiState
+import com.zmusic.app.ui.bugs.BugLogScreen
 import com.zmusic.app.ui.components.AmbientAudioShaderBackground
 import com.zmusic.app.ui.components.DockDestination
 import com.zmusic.app.ui.components.FloatingChrome
@@ -85,7 +89,10 @@ private val DESTINATIONS = listOf(
     DockDestination("home", "Home", Icons.Rounded.Home),
     DockDestination("library", "Library", Icons.Rounded.LibraryMusic),
     DockDestination("search", "Search", Icons.Rounded.Search),
+    DockDestination("bugs", "Bugs", Icons.Rounded.BugReport),
 )
+
+private const val BUGS_ROUTE = "bugs"
 
 private const val UI_PREFS = "zmusic_ui"
 private const val KEY_CAPTURE_ASKED = "capture_permission_asked"
@@ -219,6 +226,16 @@ private fun MainShell(
     val currentRoute = backStack?.destination?.route
     val selectedIndex = DESTINATIONS.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
 
+    // The Bugs tab shows a red dot while there is an error or crash the user has not looked at
+    // yet. A crash from the previous run counts, so it is flagged as soon as the app reopens.
+    val bugEntries by BugLog.entries.collectAsStateWithLifecycle()
+    val latestProblemId = remember(bugEntries) { bugEntries.lastOrNull { it.isProblem }?.id ?: 0L }
+    var seenProblemId by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(currentRoute, latestProblemId) {
+        if (currentRoute == BUGS_ROUTE) seenProblemId = latestProblemId
+    }
+    val bugsAlert = latestProblemId > seenProblemId && currentRoute != BUGS_ROUTE
+
     val bars = WindowInsets.systemBars.asPaddingValues()
     val contentPadding = PaddingValues(
         top = bars.calculateTopPadding(),
@@ -285,6 +302,7 @@ private fun MainShell(
                     )
                 }
                 composable("search") { SearchScreen(vm, playerState, player, contentPadding) }
+                composable(BUGS_ROUTE) { BugLogScreen(contentPadding) }
             }
         }
 
@@ -298,6 +316,7 @@ private fun MainShell(
             onTogglePlay = player::togglePlayPause,
             onNext = player::next,
             onOpenPlayer = { showPlayer = true },
+            alertIndex = if (bugsAlert) DESTINATIONS.indexOfFirst { it.route == BUGS_ROUTE } else -1,
             modifier = Modifier.align(Alignment.BottomCenter).graphicsLayer {
                 // Drops away as the sheet takes over, and comes back as it leaves.
                 val p = sheet.value.coerceIn(0f, 1f)

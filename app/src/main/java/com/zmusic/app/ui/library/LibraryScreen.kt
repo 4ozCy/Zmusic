@@ -165,11 +165,11 @@ private fun LetterHeader(letter: String, count: Int, railInset: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(letter, style = MaterialTheme.typography.headlineMedium)
+        Text(letter, style = MaterialTheme.typography.headlineMedium, color = AppTheme.extended.text)
         Text(
             text = count.toString(),
             style = TimeStyle,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = AppTheme.extended.textSoft,
             modifier = Modifier
                 .frostedGlassCard(CircleShape, surfaceAlpha = 0.09f)
                 .padding(horizontal = 9.dp, vertical = 3.dp),
@@ -231,7 +231,7 @@ private fun IndexRail(groups: List<LetterGroup>, listState: LazyListState, modif
         ) {
             groups.forEachIndexed { i, group ->
                 val color by animateColorAsState(
-                    targetValue = if (i == active) MaterialTheme.colorScheme.primary else AppTheme.extended.faint,
+                    targetValue = if (i == active) MaterialTheme.colorScheme.primary else AppTheme.extended.textDim,
                     animationSpec = tween(160),
                     label = "railLetter",
                 )

@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,8 +32,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,9 +84,9 @@ fun SearchScreen(
         // The area under the field fades between its states instead of snapping.
         Crossfade(targetState = mode, animationSpec = tween(180), modifier = Modifier.fillMaxSize(), label = "search") { m ->
             when (m) {
-                Mode.Prompt -> Hint("Type to search your library.")
+                Mode.Prompt -> Hint(Icons.Rounded.Search, "Type to search your library.")
 
-                Mode.NoMatches -> Hint("No matches for \"${query.trim()}\".")
+                Mode.NoMatches -> Hint(Icons.Rounded.SearchOff, "No matches for \"${query.trim()}\".")
 
                 // A ranked list rather than a strip of chips: it fills the idle screen and scans top to bottom.
                 Mode.Suggestions -> LazyColumn(
@@ -125,7 +128,7 @@ private fun GlassSearchField(
         value = query,
         onValueChange = onQueryChange,
         singleLine = true,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = AppTheme.extended.text),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSearch() }),
@@ -150,7 +153,7 @@ private fun GlassSearchField(
                         Text(
                             "Songs, artists, albums",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = AppTheme.extended.faint,
+                            color = AppTheme.extended.textDim,
                             maxLines = 1,
                         )
                     }
@@ -189,24 +192,35 @@ private fun ArtistRow(rank: Int, name: String, onClick: () -> Unit) {
         Text(
             text = rank.toString().padStart(2, '0'),
             style = TimeStyle,
-            color = AppTheme.extended.faint,
+            color = AppTheme.extended.textDim,
             modifier = Modifier.width(22.dp),
         )
         Text(
             text = name,
             style = MaterialTheme.typography.titleLarge,
+            color = AppTheme.extended.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
+/** Idle and no-result states: a glass disc with a glyph, and one line under it. */
 @Composable
-private fun Hint(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(24.dp),
-    )
+private fun Hint(icon: ImageVector, text: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 44.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Box(Modifier.size(72.dp).frostedGlassCard(CircleShape, surfaceAlpha = 0.10f), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = AppTheme.extended.textSoft, modifier = Modifier.size(30.dp))
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = AppTheme.extended.textSoft,
+            textAlign = TextAlign.Center,
+        )
+    }
 }

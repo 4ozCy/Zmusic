@@ -25,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -39,6 +41,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.zmusic.app.ui.theme.AppTheme
 import com.zmusic.app.ui.theme.Nocturne
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -176,9 +179,13 @@ fun Modifier.tilt3DOnPress(
         }
 }
 
+/** Warm-to-cool light behind the prominent pill. Dark enough at both ends for white type. */
+private val ProminentFill = Brush.horizontalGradient(listOf(Color(0xFFA8622E), Color(0xFF5A5DC8)))
+
 /**
- * Action pill. The quiet variant is glass; [prominent] is solid alabaster and is meant for the
- * single most important action in a group, so use it once.
+ * Action pill. The quiet variant is glass; [prominent] is lit from inside (amber running into
+ * indigo, with a slow sheen passing over it) and is meant for the single most important action in
+ * a group, so use it once. Type is white on both.
  */
 @Composable
 fun GlassPill(
@@ -188,14 +195,31 @@ fun GlassPill(
     prominent: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val content = if (prominent) Nocturne.Obsidian else MaterialTheme.colorScheme.onSurface
+    val content = AppTheme.extended.text
+    val tracker = LocalAudioTracker.current
     Row(
         modifier = modifier
             .pressClick(onClick = onClick)
             .height(48.dp)
             .then(
                 if (prominent) {
-                    Modifier.clip(CircleShape).background(Nocturne.Alabaster)
+                    Modifier
+                        .clip(CircleShape)
+                        .background(ProminentFill)
+                        .drawBehind {
+                            tracker.frame.longValue // redraw every frame without recomposing
+                            // A band of light crosses in the first part of each 4.5 s cycle, then rests.
+                            val cycle = (tracker.seconds % 4.5f) / 4.5f
+                            val x = -size.height + (size.width + size.height * 2f) * cycle * 2.4f
+                            drawLine(
+                                color = Color.White,
+                                start = Offset(x, size.height * 1.2f),
+                                end = Offset(x + size.height * 0.6f, -size.height * 0.2f),
+                                strokeWidth = size.height * 0.45f,
+                                alpha = 0.20f,
+                            )
+                        }
+                        .border(1.dp, SpecularEdge, CircleShape)
                 } else {
                     Modifier.frostedGlassCard(CircleShape)
                 },

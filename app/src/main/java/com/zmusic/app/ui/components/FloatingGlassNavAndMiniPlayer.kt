@@ -3,8 +3,12 @@ package com.zmusic.app.ui.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -41,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -61,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.playback.PlayerUiState
+import com.zmusic.app.ui.theme.AppTheme
 import com.zmusic.app.ui.theme.Nocturne
 import dev.chrisbanes.haze.HazeState
 
@@ -88,6 +94,7 @@ object FloatingChrome {
  * `Modifier.haze(hazeState)`, not inside it.
  *
  * @param position playback position in ms; read only while drawing the progress filament.
+ * @param alertIndex tab that should show a pulsing red dot (something new to look at), or -1.
  */
 @Composable
 fun FloatingGlassNavAndMiniPlayer(
@@ -101,6 +108,7 @@ fun FloatingGlassNavAndMiniPlayer(
     onNext: () -> Unit,
     onOpenPlayer: () -> Unit,
     modifier: Modifier = Modifier,
+    alertIndex: Int = -1,
 ) {
     Column(
         modifier = modifier
@@ -132,21 +140,24 @@ fun FloatingGlassNavAndMiniPlayer(
                 modifier = Modifier.padding(bottom = FloatingChrome.Gap),
             )
         }
-        GlassDock(hazeState, destinations, selectedIndex, onSelect)
+        GlassDock(hazeState, destinations, selectedIndex, alertIndex, onSelect)
     }
 }
 
 /**
  * Navigation pill. A brighter glass lozenge sits behind the selected tab and slides between tabs
- * on an underdamped spring, so it arrives with a small, physical overshoot.
+ * on an underdamped spring, so it arrives with a small, physical overshoot. A filament of amber
+ * light rides along its bottom edge and brightens with the bass.
  */
 @Composable
 private fun GlassDock(
     hazeState: HazeState,
     destinations: List<DockDestination>,
     selectedIndex: Int,
+    alertIndex: Int,
     onSelect: (Int) -> Unit,
 ) {
+    val tracker = LocalAudioTracker.current
     val slot = animateFloatAsState(
         targetValue = selectedIndex.toFloat(),
         animationSpec = spring(dampingRatio = 0.68f, stiffness = 420f),
@@ -168,27 +179,37 @@ private fun GlassDock(
                     endY = pad + h,
                 )
                 val rimStroke = Stroke(1.dp.toPx())
+                val glowHalf = 9.dp.toPx()
+                val glowStroke = 2.dp.toPx()
+                val glowInset = 4.5.dp.toPx()
                 onDrawBehind {
+                    tracker.frame.longValue // redraw every frame without recomposing
+                    val bass = tracker.bass.value
                     val w = size.width / destinations.size
                     val topLeft = Offset(slot.value * w + pad, pad)
                     val lozenge = Size(w - pad * 2, h)
                     drawRoundRect(Color.White.copy(alpha = 0.11f), topLeft, lozenge, radius)
                     drawRoundRect(rim, topLeft, lozenge, radius, style = rimStroke)
+                    val cx = topLeft.x + lozenge.width / 2f
+                    val gy = pad + h - glowInset
+                    val reach = glowHalf * (1f + 0.7f * bass)
+                    drawLine(Nocturne.Amber, Offset(cx - reach, gy), Offset(cx + reach, gy), glowStroke * 3f, StrokeCap.Round, alpha = 0.10f + 0.22f * bass)
+                    drawLine(Nocturne.Amber, Offset(cx - reach, gy), Offset(cx + reach, gy), glowStroke, StrokeCap.Round, alpha = 0.55f + 0.45f * bass)
                 }
             },
     ) {
         Row(Modifier.fillMaxSize()) {
             destinations.forEachIndexed { i, d ->
-                DockItem(d, isSelected = i == selectedIndex, modifier = Modifier.weight(1f)) { onSelect(i) }
+                DockItem(d, isSelected = i == selectedIndex, alert = i == alertIndex, modifier = Modifier.weight(1f)) { onSelect(i) }
             }
         }
     }
 }
 
 @Composable
-private fun DockItem(d: DockDestination, isSelected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun DockItem(d: DockDestination, isSelected: Boolean, alert: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val tint by animateColorAsState(
-        targetValue = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = if (isSelected) AppTheme.extended.text else AppTheme.extended.textSoft,
         animationSpec = tween(220),
         label = "dockTint",
     )
@@ -208,17 +229,20 @@ private fun DockItem(d: DockDestination, isSelected: Boolean, modifier: Modifier
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = d.icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(22.dp).graphicsLayer {
-                val s = 1f + 0.10f * lift.value
-                scaleX = s
-                scaleY = s
-                translationY = -1.5.dp.toPx() * lift.value
-            },
-        )
+        Box {
+            Icon(
+                imageVector = d.icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(22.dp).graphicsLayer {
+                    val s = 1f + 0.10f * lift.value
+                    scaleX = s
+                    scaleY = s
+                    translationY = -1.5.dp.toPx() * lift.value
+                },
+            )
+            if (alert) AlertDot(Modifier.align(Alignment.TopEnd))
+        }
         Text(
             text = d.label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
@@ -228,6 +252,27 @@ private fun DockItem(d: DockDestination, isSelected: Boolean, modifier: Modifier
         )
     }
 }
+
+/** Small red dot that breathes, with a ring pulsing out of it. Marks a tab with something new. */
+@Composable
+private fun AlertDot(modifier: Modifier = Modifier) {
+    val pulse = rememberInfiniteTransition(label = "alert").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1300), RepeatMode.Restart),
+        label = "alertPulse",
+    )
+    Box(
+        modifier.size(8.dp).drawBehind {
+            val p = pulse.value
+            val r = size.minDimension / 2f
+            drawCircle(AlertRed, r * (1f + 1.6f * p), alpha = 0.55f * (1f - p))
+            drawCircle(AlertRed, r)
+        },
+    )
+}
+
+private val AlertRed = Color(0xFFFF5D7A)
 
 /**
  * Collapsed player: a small live gyroscope where a cover would be, the title, two bare icons and
@@ -296,13 +341,14 @@ private fun GlassMiniPlayer(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
+                    color = AppTheme.extended.text,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = artist,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = AppTheme.extended.textSoft,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
