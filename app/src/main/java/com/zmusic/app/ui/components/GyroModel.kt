@@ -16,23 +16,28 @@ import kotlin.math.sin
  */
 internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private val tickCount = if (halo) TICKS else 0
-    private val arcCount = if (halo) ARCS + DASHES else 0
-    private val waveCount = if (halo) WAVE else 0
+    private val dashCount = if (halo) DASHES else 0
 
     /** Primitives `[0, tickStart)` are hoop faces (quads); `[tickStart, coreIndex)` are lines. */
     val tickStart = RINGS * segments
-
-    /** Lines from here on are joined end to end (circles, shockwave) and want butt caps. */
-    val arcStart = tickStart + tickCount
-    private val waveStart = arcStart + arcCount
-    val coreIndex = waveStart + waveCount
+    private val dashStart = tickStart + tickCount
+    val coreIndex = dashStart + dashCount
     val count = coreIndex + 1
 
     /** Screen-space points, 8 floats per primitive: a quad's four corners, or a line's two ends. */
     val xy = FloatArray(count * 8)
 
-    /** Quad: its shaded colour. Line: its colour; zero alpha means "skip". */
+    /** Quad: its flat colour (the average of its corners). Line: its colour; zero alpha means "skip". */
     val fill = IntArray(count)
+
+    /**
+     * The hoop faces again as a smooth-shaded triangle mesh: per face two triangles, 12 floats in
+     * [mesh] at `face * 12` and 6 colours in [meshColor] at `face * 6`. Neighbouring faces share
+     * their corner positions and colours exactly, so tone runs round a hoop without a single step.
+     * Both arrays carry spare room at the end for platform versions that over-check lengths.
+     */
+    val mesh = FloatArray(RINGS * segments * 12 + 24)
+    val meshColor = IntArray(RINGS * segments * 6 + 24)
 
     /** Quad only: the bevel line drawn along both rims. */
     val edge = IntArray(count)
@@ -46,6 +51,29 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     val glintXY = FloatArray(RINGS * 2)
     val glintSize = FloatArray(RINGS)
 
+    /**
+     * The halo's unbroken circles, each one polyline of [loopPoints] screen points starting at
+     * `loop * loopStride` in [loopXY]: 0 is the guide circle, 1 the shockwave. The first half of
+     * the points is the half nearer the viewer, the second half the far one, sharing their end
+     * points. Opacity runs from [loopFarAlpha] at screen height [loopFarY] to [loopNearAlpha] at
+     * [loopNearY]; both zero means "not showing".
+     */
+    val loopPoints = LOOP + 1
+    val loopStride = loopPoints * 2
+    val loopXY = FloatArray(LOOPS * loopStride)
+    val loopNearAlpha = FloatArray(LOOPS)
+    val loopFarAlpha = FloatArray(LOOPS)
+    val loopNearY = FloatArray(LOOPS)
+    val loopFarY = FloatArray(LOOPS)
+    val loopWidth = FloatArray(LOOPS)
+    private val loopCos = FloatArray(loopPoints)
+    private val loopSin = FloatArray(loopPoints)
+
+    // Shaded colour at each face boundary of the hoop being built.
+    private val toneR = FloatArray(segments)
+    private val toneG = FloatArray(segments)
+    private val toneB = FloatArray(segments)
+
     // Per-segment unit-circle samples: start, end (overlapping the next face a little, which hides the seam), middle.
     private val cos0 = FloatArray(segments)
     private val sin0 = FloatArray(segments)
@@ -57,6 +85,7 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private val tickSin = FloatArray(tickCount)
 
     private val angles = FloatArray(RINGS)
+    private var drive = 0.30f
     private var lastSeconds = -1f
 
     // Kick detector for the shockwave: bass against its own slow average.
@@ -64,6 +93,7 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private var waveAge = -1f
 
     // Scratch matrices, row-major 3x3.
+    private val tilt = FloatArray(9)
     private val global = FloatArray(9)
     private val rot = FloatArray(9)
     private val m0 = FloatArray(9)
@@ -86,6 +116,10 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
             val a = (k * 2.0 * PI / tickCount).toFloat()
             tickCos[k] = cos(a); tickSin[k] = sin(a)
         }
+        for (k in 0 until loopPoints) {
+            val a = (k * 2.0 * PI / LOOP).toFloat()
+            loopCos[k] = cos(a); loopSin[k] = sin(a)
+        }
     }
 
     fun update(
@@ -107,14 +141,14 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         var dt = if (lastSeconds < 0f) 0f else t - lastSeconds
         if (dt < 0f || dt > 0.1f) dt = 0.016f
         lastSeconds = t
-        val drive = 0.30f + 1.9f * mid + 0.5f * bass
+        // The speed itself is eased too: the music sets where it is heading, not where it is.
+        drive += (0.30f + 1.9f * mid + 0.5f * bass - drive) * min1(dt * 5f)
         for (i in 0 until RINGS) angles[i] = (angles[i] + SPEED[i] * drive * dt) % TWO_PI
 
         // Whole sculpture: a slow yaw, then tipped so we look down onto it, with a gentle nod.
-        rotX(global, -(0.50f + 0.10f * sin(t * 0.23f)))
+        rotX(tilt, -(0.50f + 0.10f * sin(t * 0.23f)))
         rotY(rot, t * 0.17f)
-        mul(global, rot, m2)
-        m2.copyInto(global)
+        mul(tilt, rot, global)
 
         // Gimbal chain: each hoop turns inside the frame of the one outside it.
         rotX(rot, angles[0]); mul(global, rot, m0)
@@ -126,7 +160,8 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         ring(2, m2, RADIUS[2] * (1f + 0.14f * bass), t, treble)
         if (halo) {
             halo(bands, tickWidth)
-            circles(t, tickWidth)
+            loop(0, CIRCLE_RADIUS, 0.55f, tickWidth * 0.55f)
+            dashes(t, tickWidth)
             shockwave(bass, dt, tickWidth)
         }
 
@@ -135,10 +170,10 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     }
 
     /**
-     * One hoop, shaded as a single continuous piece of polished metal. The Lambert term runs
-     * through a smoothstep and blends shadow -> base -> light with no steps, and the Blinn
-     * highlight feathers into the surface, so nothing along the band reads as a seam between
-     * parts. Treble widens the sheen.
+     * One hoop, shaded as a single continuous piece of polished metal. Light is worked out at the
+     * boundaries between faces and blended across each face, so tone never steps along the band.
+     * The Lambert term runs through a smoothstep and blends shadow -> base -> light, and the Blinn
+     * highlight feathers into the surface. Treble widens the sheen.
      */
     private fun ring(index: Int, m: FloatArray, radius: Float, t: Float, treble: Float) {
         val hw = HALF_WIDTH[index]
@@ -156,20 +191,20 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
             val p = base + j
             val o = p * 8
             // Cylindrical band: the circle lies in the local XY plane, the band's width runs along local Z.
-            project(m, radius * cos0[j], radius * sin0[j], -hw, o)
-            project(m, radius * cos1[j], radius * sin1[j], -hw, o + 2)
-            project(m, radius * cos1[j], radius * sin1[j], hw, o + 4)
-            project(m, radius * cos0[j], radius * sin0[j], hw, o + 6)
+            project(m, radius * cos0[j], radius * sin0[j], -hw, xy, o)
+            project(m, radius * cos1[j], radius * sin1[j], -hw, xy, o + 2)
+            project(m, radius * cos1[j], radius * sin1[j], hw, xy, o + 4)
+            project(m, radius * cos0[j], radius * sin0[j], hw, xy, o + 6)
+            depth[p] = (m[6] * cosM[j] + m[7] * sinM[j]) * radius
 
-            val c = cosM[j]
-            val s = sinM[j]
-            val z = (m[6] * c + m[7] * s) * radius
-            depth[p] = z
-
-            // The face normal is the outward radial direction, rotated into view space.
+            // Shade at the face's leading edge. The normal is the outward radial direction,
+            // rotated into view space.
+            val c = cos0[j]
+            val s = sin0[j]
             var nx = m[0] * c + m[1] * s
             var ny = m[3] * c + m[4] * s
             var nz = m[6] * c + m[7] * s
+            val z = nz * radius
             // A band is open: where its outside faces away we are looking at the inside wall.
             val inside = nz < 0f
             if (inside) {
@@ -206,20 +241,46 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
                 r += (HIGHLIGHT_R - r) * sheen
                 g += (HIGHLIGHT_G - g) * sheen
                 b += (HIGHLIGHT_B - b) * sheen
+
+                // Glint position: centroid of the highlight, so it glides instead of hopping faces.
+                glintX += gloss * (xy[o] + xy[o + 6])
+                glintY += gloss * (xy[o + 1] + xy[o + 7])
+                glintW += gloss
+                if (gloss > glintPeak) glintPeak = gloss
             }
+            toneR[j] = r
+            toneG[j] = g
+            toneB[j] = b
+        }
+
+        // Stitch the faces: each one runs from its own leading edge to the next face's.
+        for (j in 0 until segments) {
+            val p = base + j
+            val jn = if (j + 1 == segments) 0 else j + 1
+            val o = p * 8
+            val on = (base + jn) * 8
+            val v = p * 12
+            mesh[v] = xy[o]; mesh[v + 1] = xy[o + 1]
+            mesh[v + 2] = xy[on]; mesh[v + 3] = xy[on + 1]
+            mesh[v + 4] = xy[on + 6]; mesh[v + 5] = xy[on + 7]
+            mesh[v + 6] = xy[o]; mesh[v + 7] = xy[o + 1]
+            mesh[v + 8] = xy[on + 6]; mesh[v + 9] = xy[on + 7]
+            mesh[v + 10] = xy[o + 6]; mesh[v + 11] = xy[o + 7]
+            val here = argb(1f, toneR[j], toneG[j], toneB[j])
+            val next = argb(1f, toneR[jn], toneG[jn], toneB[jn])
+            val c = p * 6
+            meshColor[c] = here; meshColor[c + 1] = next; meshColor[c + 2] = next
+            meshColor[c + 3] = here; meshColor[c + 4] = next; meshColor[c + 5] = here
+
+            val r = (toneR[j] + toneR[jn]) * 0.5f
+            val g = (toneG[j] + toneG[jn]) * 0.5f
+            val b = (toneB[j] + toneB[jn]) * 0.5f
             fill[p] = argb(1f, r, g, b)
             // The rim follows the surface tone, pulled toward the ink colour: a bevel, not an
             // outline. It is still what keeps a hoop visible when it turns exactly edge-on.
             edge[p] = argb(1f, inkR + (r - inkR) * RIM, inkG + (g - inkG) * RIM, inkB + (b - inkB) * RIM)
-
-            if (!inside) {
-                // Glint position: centroid of the highlight, so it glides instead of hopping faces.
-                glintX += gloss * (xy[o] + xy[o + 4])
-                glintY += gloss * (xy[o + 1] + xy[o + 5])
-                glintW += gloss
-                if (gloss > glintPeak) glintPeak = gloss
-            }
         }
+
         val strength = ((glintPeak - 0.35f) / 0.55f).coerceIn(0f, 1f)
         if (halo && strength > 0f && glintW > 0f) {
             glintXY[index * 2] = glintX / (2f * glintW)
@@ -261,20 +322,28 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     }
 
     /**
-     * The two guide circles just inside the ticks, which turn the halo into a drawn "magic
-     * circle": one solid, one dashed and slowly counter-turning.
+     * One unbroken circle in the halo plane. A circle about the sculpture's axis looks the same
+     * however far the sculpture has yawed, so it is laid out in the tilted frame only: point 0 on
+     * the right, the near half first, then the far half.
      */
-    private fun circles(t: Float, tickWidth: Float) {
-        val step = TWO_PI / ARCS
-        for (k in 0 until ARCS) {
-            val p = arcStart + k
-            val a = k * step
-            val fog = flatLine(p, CIRCLE_RADIUS, cos(a), sin(a), CIRCLE_RADIUS, cos(a + step), sin(a + step), tickWidth * 0.55f)
-            fill[p] = argb(0.55f * fog, 0.80f, 0.82f, 0.98f)
+    private fun loop(index: Int, radius: Float, alpha: Float, lineWidth: Float) {
+        val base = index * loopStride
+        for (k in 0 until loopPoints) {
+            project(tilt, radius * loopCos[k], 0f, radius * loopSin[k], loopXY, base + k * 2)
         }
+        val reach = tilt[8] * radius
+        loopNearAlpha[index] = alpha * fog(reach)
+        loopFarAlpha[index] = alpha * fog(-reach)
+        loopNearY[index] = loopXY[base + (LOOP / 4) * 2 + 1]
+        loopFarY[index] = loopXY[base + (3 * LOOP / 4) * 2 + 1]
+        loopWidth[index] = lineWidth
+    }
+
+    /** The dashed guide circle, slowly counter-turning inside the solid one. */
+    private fun dashes(t: Float, tickWidth: Float) {
         val dash = TWO_PI / DASHES
         for (k in 0 until DASHES) {
-            val p = arcStart + ARCS + k
+            val p = dashStart + k
             val a = k * dash - t * 0.35f
             val fog = flatLine(p, DASH_RADIUS, cos(a), sin(a), DASH_RADIUS, cos(a + dash * 0.5f), sin(a + dash * 0.5f), tickWidth * 0.55f)
             fill[p] = argb(0.50f * fog, 0.95f, 0.72f, 0.42f)
@@ -290,43 +359,39 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         }
         if ((waveAge < 0f || waveAge > 0.28f) && bass - bassSlow > 0.13f) waveAge = 0f
         if (waveAge < 0f) {
-            for (k in 0 until WAVE) fill[waveStart + k] = 0
+            loopNearAlpha[1] = 0f
+            loopFarAlpha[1] = 0f
             return
         }
         val u = waveAge / WAVE_SECONDS
         val ease = 1f - (1f - u) * (1f - u)
-        val radius = HALO_RADIUS + 0.10f + 0.62f * ease
-        val alpha = (1f - u) * (1f - u) * 0.75f
-        val step = TWO_PI / WAVE
-        for (k in 0 until WAVE) {
-            val p = waveStart + k
-            val a = k * step
-            val fog = flatLine(p, radius, cos(a), sin(a), radius, cos(a + step), sin(a + step), tickWidth * (1.3f - 0.8f * u))
-            fill[p] = argb(alpha * fog, 1f, 0.90f, 0.74f)
-        }
+        loop(1, HALO_RADIUS + 0.10f + 0.62f * ease, (1f - u) * (1f - u) * 0.75f, tickWidth * (1.3f - 0.8f * u))
     }
 
     /** A line lying in the halo plane, given in polar form. Stores its width and depth, returns its fog. */
     private fun flatLine(p: Int, r0: Float, c0: Float, s0: Float, r1: Float, c1: Float, s1: Float, lineWidth: Float): Float {
         val o = p * 8
-        val scale = project(global, r0 * c0, 0f, r0 * s0, o)
-        project(global, r1 * c1, 0f, r1 * s1, o + 2)
+        val scale = project(global, r0 * c0, 0f, r0 * s0, xy, o)
+        project(global, r1 * c1, 0f, r1 * s1, xy, o + 2)
         val z = global[6] * (r0 * c0 + r1 * c1) * 0.5f + global[8] * (r0 * s0 + r1 * s1) * 0.5f
         depth[p] = z
         width[p] = lineWidth * scale
-        return 0.35f + 0.65f * ((z + 1.4f) / 2.8f).coerceIn(0f, 1f)
+        return fog(z)
     }
+
+    /** Things in the halo plane fade as they recede. */
+    private fun fog(z: Float): Float = 0.35f + 0.65f * ((z + 1.4f) / 2.8f).coerceIn(0f, 1f)
 
     private fun min1(v: Float): Float = if (v > 1f) 1f else v
 
-    /** Rotates a local point by [m], applies the perspective divide, stores it at [at]. Returns the scale used. */
-    private fun project(m: FloatArray, x: Float, y: Float, z: Float, at: Int): Float {
+    /** Rotates a local point by [m], applies the perspective divide, stores it in [out] at [at]. Returns the scale used. */
+    private fun project(m: FloatArray, x: Float, y: Float, z: Float, out: FloatArray, at: Int): Float {
         val vx = m[0] * x + m[1] * y + m[2] * z
         val vy = m[3] * x + m[4] * y + m[5] * z
         val vz = m[6] * x + m[7] * y + m[8] * z
         val s = CAMERA / (CAMERA - vz)
-        xy[at] = cx + vx * unit * s
-        xy[at + 1] = cy + vy * unit * s
+        out[at] = cx + vx * unit * s
+        out[at + 1] = cy + vy * unit * s
         return s
     }
 
@@ -377,9 +442,11 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private companion object {
         const val RINGS = 3
         const val TICKS = 72
-        const val ARCS = 96
-        const val DASHES = 24
-        const val WAVE = 96
+        const val DASHES = 36
+
+        /** Unbroken circles (guide circle, shockwave) and the points along each; a multiple of four. */
+        const val LOOPS = 2
+        const val LOOP = 128
         const val WAVE_SECONDS = 0.75f
         const val CAMERA = 3.4f
         const val HALO_RADIUS = 1.30f
@@ -394,14 +461,14 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         const val GLOSS = 14f
 
         /** Tone and brightness of the inside wall relative to the outside. */
-        const val INNER_TONE = 0.60f
-        const val INNER_DIM = 0.88f
+        const val INNER_TONE = 0.72f
+        const val INNER_DIM = 0.92f
 
         /** Brightness exactly on the turn-over: halfway between the two walls. */
-        const val FOLD_DIM = 0.94f
+        const val FOLD_DIM = 0.96f
 
         /** How far (in normal z) the turn-over blend reaches round the hoop. */
-        const val FOLD = 0.30f
+        const val FOLD = 0.45f
 
         /** How much of the surface tone the rim keeps; the rest is the hoop's ink colour. */
         const val RIM = 0.50f
