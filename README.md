@@ -8,13 +8,14 @@ Offline-first Android music player. Kotlin, Jetpack Compose (Material 3), Media3
 
 ## Design
 
-Grounded and restrained. Neutrals are `#0B0B0D` (dark) and `#F6F6F4` (light), nudged by one muted seed colour sampled from the current song's cover (chroma capped so bright covers never hurt contrast). It follows the system light/dark setting.
+Calm, typographic and cover-free. Neutrals are `#0B0B0D` (dark) and `#F6F6F4` (light), nudged by one muted seed colour derived from the current song's name (chroma capped so contrast always holds). It follows the system light/dark setting. The identity of the app is the live audio visual and the type, not artwork.
 
-- No cards, borders or pill backgrounds around controls. Structure comes from spacing and 0.5dp hairlines at 10% alpha.
-- Display type is tight-tracked bold sans; timestamps are monospaced with tabular figures.
+- No album covers, no cards, borders or pill backgrounds around controls. Structure comes from spacing and 0.5dp hairlines at 10% alpha.
+- Type is Manrope; timestamps, counts and row numbers are JetBrains Mono.
 - Motion is critically damped (no bounce). Press detents are 0.94 scale with haptics on transport controls.
-- Now Playing: cover with 12dp corners, a 1dp top rim highlight and a grounded shadow; a calm radial wash with 2% film grain; hairline tick spectrum; waveform-free precision scrubber (2dp paused, 4dp playing, thumb + time pill + haptic ticks while dragging); the cover gently breathes (1.0 to 1.02) with low-end energy; the play button morphs circle to 16dp squircle; skipping slides covers with a parallax and a 0.94 scale dip.
-- Queue and lyrics open as panels while the cover docks into a compact header.
+- One signature visual, the radial spectrum ring: hero on Now Playing, 44dp in the mini player, idle brand mark on the permission screen. One shared frame loop feeds every live visual.
+- Now Playing: ring, title block directly above the precision scrubber (2dp paused, 4dp playing, thumb + time pill + haptic ticks while dragging), play button that morphs circle to 16dp squircle. Skipping slides the title in the direction of travel. The sheet follows your finger when you swipe it down.
+- The queue opens in place of the ring under a compact header.
 - Honours the system "remove animations" setting (decorative motion stops).
 
 ### Audio visuals are real
@@ -32,8 +33,8 @@ Grounded and restrained. Neutrals are `#0B0B0D` (dark) and `#F6F6F4` (light), nu
 
 ## Not built yet
 
-- **Lyrics source.** The synced-lyrics view and LRC parser exist and are unit-tested, but nothing supplies lyrics yet, so the panel shows an empty state. Needs a source (embedded tags, sidecar files, or a lyrics service).
-- Playlists, favorites, history, sort/filter, drag-reorder queue, queue restore after process death, equalizer/effects, sleep timer, playback speed, backup/restore, settings, manual theme switch. The Playlists tab is a labelled placeholder.
+- Lyrics and album art are intentionally not part of the app.
+- Playlists, favorites, history, sort/filter, drag-reorder queue, queue restore after process death, equalizer/effects, sleep timer, playback speed, backup/restore, settings, manual theme switch.
 
 ## Releases and signing
 
@@ -49,9 +50,7 @@ Gradle 8.9, JDK 17: `gradle assembleDebug`. Compose previews (light and dark) ar
 app/src/main/java/com/zmusic/app/
   data/        Room entity, DAO, database, MediaStore scanner, repository
   playback/    PlaybackService, PlayerController, LevelAudioProcessor, AudioLevels
-  lyrics/      LRC parser
-  ui/theme/    seed-based colour schemes, type, shapes, spacing
-  ui/art/      artwork cache and dominant-colour sampling
+  ui/theme/    seed-based colour schemes, type, shapes
   ui/components/  motion primitives, audio-reactive visuals, scrubber, backdrop, rows, mini player
   ui/          screens and navigation shell
   util/        formatting helpers

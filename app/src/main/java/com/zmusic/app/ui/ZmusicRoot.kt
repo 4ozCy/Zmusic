@@ -39,24 +39,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -81,13 +79,13 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.zmusic.app.AppContainer
 import com.zmusic.app.playback.PlayerUiState
-import com.zmusic.app.ui.art.ArtworkCache
+import com.zmusic.app.ui.components.LocalAudioReactor
 import com.zmusic.app.ui.components.MiniPlayer
 import com.zmusic.app.ui.components.pressClick
+import com.zmusic.app.ui.components.rememberAudioReactor
 import com.zmusic.app.ui.library.HomeScreen
 import com.zmusic.app.ui.library.LibraryScreen
 import com.zmusic.app.ui.library.LibraryViewModel
-import com.zmusic.app.ui.library.PlaylistsScreen
 import com.zmusic.app.ui.library.SearchScreen
 import com.zmusic.app.ui.nowplaying.NowPlayingScreen
 import com.zmusic.app.ui.theme.AppTheme
@@ -108,7 +106,6 @@ private val DESTINATIONS = listOf(
     Dest("home", "Home", Icons.Rounded.Home),
     Dest("library", "Library", Icons.Rounded.LibraryMusic),
     Dest("search", "Search", Icons.Rounded.Search),
-    Dest("playlists", "Playlists", Icons.Rounded.QueueMusic),
 )
 
 @Composable
@@ -166,25 +163,21 @@ fun ZmusicRoot(container: AppContainer) {
 }
 
 /**
- * Samples one muted seed colour from the current song's cover and feeds it to the theme, so the
- * neutrals pick up a faint tint of whatever is playing. Songs without a cover get a stable muted seed.
+ * Derives one muted seed colour from the current song's name and feeds it to the theme, so the
+ * neutrals and the accent pick up a faint tint of whatever is playing. Also owns the single audio
+ * reactor every live visual draws from.
  */
 @Composable
 private fun SeededApp(vm: LibraryViewModel, container: AppContainer) {
     val playerState by container.player.state.collectAsStateWithLifecycle()
-    val appContext = LocalContext.current.applicationContext
-    val fallback = remember(playerState.title, playerState.artist) {
-        seedFromText(playerState.title + playerState.artist)
+    val seed = remember(playerState.mediaId, playerState.title, playerState.artist) {
+        if (playerState.mediaId == null) DefaultSeed else seedFromText(playerState.title + playerState.artist)
     }
-    val seed by produceState(initialValue = DefaultSeed, playerState.mediaId) {
-        value = if (playerState.mediaId == null) {
-            DefaultSeed
-        } else {
-            ArtworkCache.seed(appContext, playerState.trackUri, playerState.albumId) ?: fallback
-        }
-    }
+    val reactor = rememberAudioReactor(active = playerState.isPlaying)
     ZmusicTheme(seed = seed) {
-        MainShell(vm, container, playerState, seed)
+        CompositionLocalProvider(LocalAudioReactor provides reactor) {
+            MainShell(vm, container, playerState)
+        }
     }
 }
 
@@ -193,7 +186,6 @@ private fun MainShell(
     vm: LibraryViewModel,
     container: AppContainer,
     playerState: PlayerUiState,
-    seed: Color,
 ) {
     val player = container.player
     val tracks by vm.tracks.collectAsStateWithLifecycle()
@@ -265,7 +257,6 @@ private fun MainShell(
                     )
                 }
                 composable("search") { SearchScreen(vm, playerState, player) }
-                composable("playlists") { PlaylistsScreen() }
             }
         }
 
@@ -274,7 +265,7 @@ private fun MainShell(
             enter = slideInVertically(tween(380, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(380)),
             exit = slideOutVertically(tween(280, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(280)),
         ) {
-            NowPlayingScreen(player = player, seed = seed, onClose = { showPlayer = false })
+            NowPlayingScreen(player = player, onClose = { showPlayer = false })
         }
     }
 }

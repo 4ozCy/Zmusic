@@ -7,6 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
@@ -20,6 +21,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.playback.AudioLevels
+import com.zmusic.app.ui.theme.AppTheme
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -61,6 +63,12 @@ class AudioReactor {
     }
 }
 
+/**
+ * The one reactor the whole UI draws from, provided by the app shell, so a single frame loop
+ * feeds every visual. The default is an idle reactor, which keeps previews working.
+ */
+val LocalAudioReactor = staticCompositionLocalOf { AudioReactor() }
+
 @Composable
 fun rememberAudioReactor(active: Boolean): AudioReactor {
     val reduce = rememberReduceMotion()
@@ -81,12 +89,14 @@ fun rememberAudioReactor(active: Boolean): AudioReactor {
  * is sized from the canvas, so it stays crisp at 48dp in the mini player and at full size on Now Playing.
  */
 @Composable
-fun RadialSpectrum(reactor: AudioReactor, tint: Color, modifier: Modifier = Modifier) {
+fun RadialSpectrum(modifier: Modifier = Modifier) {
+    val reactor = LocalAudioReactor.current
     val accent = MaterialTheme.colorScheme.primary
+    val tint = AppTheme.extended.wash
     Box(
         modifier.drawWithCache {
             val s = minOf(size.width, size.height)
-            val c = center
+            val c = Offset(size.width / 2f, size.height / 2f)
             val outer = s / 2f
             val inner = outer * 0.60f
             val maxLen = outer - inner
@@ -129,8 +139,8 @@ private val EQ_BANDS = intArrayOf(1, 5, 9)
 
 /** Three small bars (low / mid / high) marking the current song's row. Driven by the real analysis. */
 @Composable
-fun EqBars(playing: Boolean, color: Color, modifier: Modifier = Modifier) {
-    val reactor = rememberAudioReactor(playing)
+fun EqBars(color: Color, modifier: Modifier = Modifier) {
+    val reactor = LocalAudioReactor.current
     Canvas(modifier) {
         @Suppress("UNUSED_VARIABLE")
         val subscribe = reactor.frame.longValue

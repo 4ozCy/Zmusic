@@ -8,14 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,12 +17,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
-import com.zmusic.app.ui.components.Eyebrow
+import com.zmusic.app.ui.components.RescanButton
+import com.zmusic.app.ui.components.ScreenHeader
 import com.zmusic.app.ui.components.TrackRow
+import com.zmusic.app.ui.theme.AppTheme
 import com.zmusic.app.ui.theme.TimeStyle
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -42,20 +37,14 @@ fun LibraryScreen(
     onRefresh: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Eyebrow(if (tracks != null) "${tracks.size} songs" else "Loading", color = MaterialTheme.colorScheme.primary)
-                Text("Library", style = MaterialTheme.typography.displayMedium, modifier = Modifier.padding(top = 4.dp))
-            }
-            if (scanning) {
-                CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
-            } else {
-                IconButton(onClick = onRefresh) { Icon(Icons.Rounded.Refresh, contentDescription = "Rescan library") }
-            }
-        }
+        ScreenHeader(
+            eyebrow = when {
+                tracks == null -> "Loading"
+                tracks.size == 1 -> "1 song"
+                else -> "${tracks.size} songs"
+            },
+            title = "Library",
+        ) { RescanButton(scanning, onRefresh) }
 
         if (scanError != null) {
             Text(
@@ -67,11 +56,7 @@ fun LibraryScreen(
         }
 
         when {
-            tracks == null -> Column(
-                Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) { CircularProgressIndicator() }
+            tracks == null -> LoadingIndicator(Modifier.fillMaxSize())
 
             tracks.isEmpty() -> EmptyLibrary(scanning, onRefresh)
 
@@ -92,16 +77,17 @@ fun LibraryScreen(
                                     .background(MaterialTheme.colorScheme.background)
                                     .padding(start = 24.dp, top = 14.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.Bottom,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Text(
                                     letter,
                                     style = MaterialTheme.typography.headlineMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
-                                    text = "  ${rows.size}",
-                                    style = TimeStyle.copy(fontSize = 11.sp),
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.40f),
+                                    text = rows.size.toString(),
+                                    style = TimeStyle,
+                                    color = AppTheme.extended.faint,
                                     modifier = Modifier.padding(bottom = 5.dp),
                                 )
                             }
@@ -110,7 +96,6 @@ fun LibraryScreen(
                             TrackRow(
                                 track = iv.value,
                                 isCurrent = iv.value.mediaStoreId.toString() == playerState.mediaId,
-                                isPlaying = playerState.isPlaying,
                             ) {
                                 player.setShuffle(false)
                                 player.playQueue(tracks, iv.index)

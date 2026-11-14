@@ -2,6 +2,7 @@ package com.zmusic.app.ui.components
 
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -13,13 +14,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.zmusic.app.ui.theme.AppTheme
 
 /*
  * Motion rules for this app:
@@ -95,10 +104,13 @@ fun Modifier.machinedClick(onClick: () -> Unit): Modifier = composed {
         .clickable(interactionSource = source, indication = null, role = Role.Button, onClick = onClick)
 }
 
-/** Fade + short rise entrance, staggered by [delayMs]. */
+/**
+ * Fade + short rise entrance, staggered by [delayMs]. Plays once per screen visit: the flag is
+ * saved, so switching tabs or scrolling an item back into view does not replay it.
+ */
 @Composable
 fun Reveal(delayMs: Int, content: @Composable () -> Unit) {
-    var shown by remember { mutableStateOf(false) }
+    var shown by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
     AnimatedVisibility(
         visible = shown,
@@ -120,12 +132,45 @@ fun Eyebrow(
 /** 0.5dp rule at 10% ink. Use instead of boxes and borders. */
 @Composable
 fun HairlineDivider(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(0.5.dp).background(AppTheme.extended.hairline))
+}
+
+/** Top of every tab: accent eyebrow, display title, and an optional action on the right. */
+@Composable
+fun ScreenHeader(
+    eyebrow: String,
+    title: String,
+    modifier: Modifier = Modifier,
+    action: @Composable () -> Unit = {},
+) {
     Row(
-        modifier
-            .fillMaxWidth()
-            .height(0.5.dp)
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)),
-    ) {}
+        modifier = modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Eyebrow(eyebrow, color = MaterialTheme.colorScheme.primary)
+            Text(title, style = MaterialTheme.typography.displayMedium, modifier = Modifier.padding(top = 6.dp))
+        }
+        action()
+    }
+}
+
+/** Rescan the library. Turns into a small spinner while a scan is running. */
+@Composable
+fun RescanButton(scanning: Boolean, onRefresh: () -> Unit) {
+    IconButton(onClick = onRefresh, enabled = !scanning) {
+        Crossfade(targetState = scanning, label = "rescan") { busy ->
+            if (busy) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    Icons.Rounded.Refresh,
+                    contentDescription = "Rescan library",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
 }
 
 /** Text-forward action: icon + label, no background, no border. Hierarchy comes from colour and weight. */

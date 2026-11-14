@@ -20,7 +20,7 @@ import androidx.compose.ui.graphics.ImageShader
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
-import com.zmusic.app.ui.theme.washTone
+import com.zmusic.app.ui.theme.AppTheme
 import kotlin.random.Random
 
 /** Static film grain, tiled. Dithers gradients so they never band. Built once. */
@@ -38,22 +38,18 @@ fun rememberGrainBrush(): Brush = remember {
 }
 
 /**
- * Soft colour field behind a header, from the current song's seed. While playing, its strength
- * follows low-end energy. Track changes crossfade between two static layers.
+ * Soft colour field behind a header, in the theme's wash tone (which follows the current song).
+ * Pass a [reactor] to let its strength follow low-end energy. Track changes crossfade between
+ * two static layers.
  */
 @Composable
-fun AmbientGlow(
-    seed: Color,
-    dark: Boolean,
-    modifier: Modifier = Modifier,
-    reactor: AudioReactor? = null,
-) {
+fun AmbientGlow(modifier: Modifier = Modifier, reactor: AudioReactor? = null) {
     AnimatedContent(
-        targetState = seed,
+        targetState = AppTheme.extended.wash,
         modifier = modifier,
         transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) },
         label = "ambient",
-    ) { c -> GlowLayer(washTone(c, dark), reactor) }
+    ) { tone -> GlowLayer(tone, reactor) }
 }
 
 @Composable

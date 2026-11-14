@@ -52,7 +52,7 @@ private fun hsvOf(c: Color): FloatArray {
 }
 
 /** Soft tone for glows and tints: the seed pulled toward a calm, low-chroma colour. */
-fun washTone(seed: Color, dark: Boolean): Color {
+private fun washTone(seed: Color, dark: Boolean): Color {
     val h = hsvOf(seed)
     return if (dark) Color.hsv(h[0], h[1].coerceAtMost(0.50f), 0.62f)
     else Color.hsv(h[0], h[1].coerceAtMost(0.35f), 0.95f)
@@ -123,10 +123,20 @@ fun buildColorScheme(seed: Color, dark: Boolean): ColorScheme {
     }
 }
 
+/** Roles Material 3 has no slot for. */
 @Immutable
-data class ExtendedColors(val hairline: Color)
+data class ExtendedColors(
+    /** 0.5dp rules and inactive tracks. */
+    val hairline: Color,
+    /** Tertiary text: durations, counts, row numbers. */
+    val faint: Color,
+    /** Soft tone for glows, already adjusted for light or dark. */
+    val wash: Color,
+)
 
-private val LocalExtended = staticCompositionLocalOf { ExtendedColors(Color(0x1AFFFFFF)) }
+private val LocalExtended = staticCompositionLocalOf {
+    ExtendedColors(hairline = Color(0x1AFFFFFF), faint = Color(0x8CFFFFFF), wash = DefaultSeed)
+}
 
 object AppTheme {
     val extended: ExtendedColors
@@ -155,6 +165,16 @@ val TimeStyle = TextStyle(
     fontWeight = FontWeight.Normal,
     fontSize = 12.sp,
     lineHeight = 16.sp,
+)
+
+/** Large counts. Tabular figures so digits don't shift while a number animates. */
+val NumberStyle = TextStyle(
+    fontFamily = Sans,
+    fontWeight = FontWeight.ExtraBold,
+    fontSize = 72.sp,
+    lineHeight = 76.sp,
+    letterSpacing = (-2).sp,
+    fontFeatureSettings = "tnum",
 )
 
 private val AppTypography = Typography(
@@ -190,7 +210,14 @@ fun ZmusicTheme(
     content: @Composable () -> Unit,
 ) {
     val scheme = remember(seed, darkTheme) { buildColorScheme(seed, darkTheme) }
-    CompositionLocalProvider(LocalExtended provides ExtendedColors(scheme.onSurface.copy(alpha = 0.10f))) {
+    val extended = remember(seed, darkTheme) {
+        ExtendedColors(
+            hairline = scheme.onSurface.copy(alpha = 0.10f),
+            faint = scheme.onSurface.copy(alpha = 0.55f),
+            wash = washTone(seed, darkTheme),
+        )
+    }
+    CompositionLocalProvider(LocalExtended provides extended) {
         MaterialTheme(
             colorScheme = scheme,
             typography = AppTypography,
