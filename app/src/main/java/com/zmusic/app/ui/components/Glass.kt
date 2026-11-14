@@ -61,9 +61,9 @@ import kotlinx.coroutines.launch
  *   whatever scrolls underneath it. Haze forbids a blurred child from living inside the blurred
  *   source, which is fine here: chrome is drawn as a sibling above the content.
  * - Panes inside the scrolling content (tiles, pills) pass no HazeState. The only thing behind
- *   them is the aurora, which is already a smooth low-frequency field, so blurring it again would
- *   cost a render pass per tile per frame and change nothing visible. They get the same smoked
- *   tint, sheen and specular edge without the blur, which also keeps list scrolling cheap.
+ *   them is the backdrop, and blurring it would cost a render pass per tile per frame. They get
+ *   the same smoked tint, sheen and specular edge without the blur, which keeps list scrolling
+ *   cheap. The black hole and stars show through these panes sharp, only tinted.
  */
 
 /** Light catching the top edge of a pane and dying away down its sides. */

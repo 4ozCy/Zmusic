@@ -177,7 +177,7 @@ fun ZmusicRoot(container: AppContainer) {
 /**
  * Layering, back to front:
  *
- * 1. Haze source: the aurora shader plus the current screen. Everything in here can be blurred.
+ * 1. Haze source: the backdrop shader plus the current screen. Everything in here can be blurred.
  * 2. Floating glass dock and mini player, blurring layer 1.
  * 3. The Now Playing sheet, also blurring layer 1.
  *
