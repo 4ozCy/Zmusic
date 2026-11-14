@@ -13,18 +13,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageShader
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.geometry.Offset
 import com.zmusic.app.ui.theme.washTone
 import kotlin.random.Random
 
-/** Static film grain, tiled. Dithers the gradient so it never bands. Built once. */
+/** Static film grain, tiled. Dithers gradients so they never band. Built once. */
 @Composable
 fun rememberGrainBrush(): Brush = remember {
     val n = 96
@@ -39,28 +38,32 @@ fun rememberGrainBrush(): Brush = remember {
 }
 
 /**
- * Calm radial colour wash from the cover's seed, blended into the base canvas, plus 2% grain.
- * Track changes crossfade between two static layers, so nothing is reallocated per frame.
+ * Soft colour field behind a header, from the current song's seed. While playing, its strength
+ * follows low-end energy. Track changes crossfade between two static layers.
  */
 @Composable
-fun WashBackdrop(seed: Color, modifier: Modifier = Modifier) {
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+fun AmbientGlow(
+    seed: Color,
+    dark: Boolean,
+    modifier: Modifier = Modifier,
+    reactor: AudioReactor? = null,
+) {
     AnimatedContent(
         targetState = seed,
         modifier = modifier,
-        transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(700)) },
-        label = "wash",
-    ) { c -> WashLayer(washTone(c, dark)) }
+        transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) },
+        label = "ambient",
+    ) { c -> GlowLayer(washTone(c, dark), reactor) }
 }
 
 @Composable
-private fun WashLayer(tone: Color) {
+private fun GlowLayer(tone: Color, reactor: AudioReactor?) {
     val bg = MaterialTheme.colorScheme.background
     val grain = rememberGrainBrush()
     Box(
         Modifier.fillMaxSize().drawWithCache {
             val wash = Brush.radialGradient(
-                listOf(tone.copy(alpha = 0.34f), Color.Transparent),
+                listOf(tone.copy(alpha = 0.55f), Color.Transparent),
                 center = Offset(size.width * 0.5f, size.height * 0.16f),
                 radius = size.width * 1.1f,
             )
@@ -70,7 +73,14 @@ private fun WashLayer(tone: Color) {
                 endY = size.height,
             )
             onDrawBehind {
-                drawRect(wash)
+                val kick = if (reactor != null) {
+                    @Suppress("UNUSED_VARIABLE")
+                    val subscribe = reactor.frame.longValue
+                    ((reactor.bass - 0.3f) / 0.5f).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                drawRect(wash, alpha = 0.75f + 0.25f * kick)
                 drawRect(fade)
                 drawRect(grain, alpha = 0.02f)
             }

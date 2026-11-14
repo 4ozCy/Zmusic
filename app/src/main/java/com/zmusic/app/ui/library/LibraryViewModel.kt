@@ -2,6 +2,7 @@ package com.zmusic.app.ui.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.zmusic.app.data.AlbumSummary
 import com.zmusic.app.data.LibraryRepository
 import com.zmusic.app.data.TrackEntity
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +30,25 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
     val recentlyAdded: StateFlow<List<TrackEntity>> = repo.observeRecentlyAdded(15)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Most common artists, shown as quick chips on the Search screen. */
+    val albums: StateFlow<List<AlbumSummary>> = repo.observeAll()
+        .map { list ->
+            list.groupBy { it.albumId }
+                .map { (id, ts) ->
+                    val artists = ts.map { it.artist }.distinct()
+                    AlbumSummary(
+                        albumId = id,
+                        title = ts.first().album,
+                        artist = if (artists.size == 1) artists[0] else "Various artists",
+                        trackCount = ts.size,
+                        totalMs = ts.sumOf { it.durationMs },
+                    )
+                }
+                .sortedBy { it.title.lowercase() }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Most common artists, shown as quick suggestions on the Search screen. */
     val topArtists: StateFlow<List<String>> = repo.observeAll()
         .map { list ->
             list.groupingBy { it.artist }.eachCount()

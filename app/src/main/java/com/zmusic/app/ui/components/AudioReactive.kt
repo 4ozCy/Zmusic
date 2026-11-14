@@ -1,26 +1,34 @@
 package com.zmusic.app.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.playback.AudioLevels
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.exp
+import kotlin.math.sin
 
 /**
  * Smooths the raw audio levels to display rate. Attack is fast, release is slower, so bars
- * follow transients without flicker. One instance per visible screen; the frame loop runs only
- * while something is playing (or still decaying) and never allocates.
+ * follow transients without flicker. The frame loop runs only while something is playing (or
+ * still decaying) and never allocates.
  */
 @Stable
 class AudioReactor {
@@ -68,34 +76,58 @@ fun rememberAudioReactor(active: Boolean): AudioReactor {
 }
 
 /**
- * Hairline micro-tick spectrum. Heights come from the real analysed bands, interpolated across
- * the tick count. Monochrome, no gradients.
+ * The app's signature visual: a ring of hairline ticks whose lengths come from the real analysed
+ * spectrum (mirrored left/right), with a soft glow that breathes with low-end energy. Everything
+ * is sized from the canvas, so it stays crisp at 48dp in the mini player and at full size on Now Playing.
  */
 @Composable
-fun TickSpectrum(reactor: AudioReactor, color: Color, modifier: Modifier = Modifier, ticks: Int = 56) {
-    Canvas(modifier) {
-        @Suppress("UNUSED_VARIABLE")
-        val subscribe = reactor.frame.longValue
-        val bands = reactor.bands
-        val slot = size.width / ticks
-        val stroke = 1.5.dp.toPx()
-        val minH = 2.dp.toPx()
-        val cy = size.height / 2f
-        for (i in 0 until ticks) {
-            val pos = i * (bands.size - 1f) / (ticks - 1f)
-            val lo = pos.toInt().coerceAtMost(bands.size - 2)
-            val f = pos - lo
-            val v = bands[lo] * (1f - f) + bands[lo + 1] * f
-            val h = minH + (size.height - minH) * v
-            val x = i * slot + slot / 2f
-            drawLine(color, Offset(x, cy - h / 2f), Offset(x, cy + h / 2f), stroke, StrokeCap.Round)
-        }
-    }
+fun RadialSpectrum(reactor: AudioReactor, tint: Color, modifier: Modifier = Modifier) {
+    val accent = MaterialTheme.colorScheme.primary
+    Box(
+        modifier.drawWithCache {
+            val s = minOf(size.width, size.height)
+            val c = center
+            val outer = s / 2f
+            val inner = outer * 0.60f
+            val maxLen = outer - inner
+            val stroke = (s * 0.0065f).coerceAtLeast(1f)
+            val n = if (s < 120.dp.toPx()) 36 else 72
+            val half = n / 2
+            val glowR = inner * 1.5f
+            val glow = Brush.radialGradient(listOf(tint.copy(alpha = 0.55f), Color.Transparent), center = c, radius = glowR)
+            onDrawBehind {
+                @Suppress("UNUSED_VARIABLE")
+                val subscribe = reactor.frame.longValue
+                val kick = ((reactor.bass - 0.3f) / 0.5f).coerceIn(0f, 1f)
+                drawCircle(glow, radius = glowR, center = c, alpha = 0.45f + 0.55f * kick)
+                drawCircle(accent.copy(alpha = 0.22f), radius = inner, center = c, style = Stroke(stroke))
+                val bands = reactor.bands
+                for (i in 0 until n) {
+                    val a = (i * 2.0 * PI / n - PI / 2).toFloat()
+                    val f = (if (i < half) i else n - i).toFloat() / half
+                    val pos = f * (bands.size - 1)
+                    val lo = pos.toInt().coerceAtMost(bands.size - 2)
+                    val frac = pos - lo
+                    val v = bands[lo] * (1f - frac) + bands[lo + 1] * frac
+                    val len = stroke * 2f + maxLen * v
+                    val ca = cos(a)
+                    val sa = sin(a)
+                    drawLine(
+                        color = accent.copy(alpha = 0.40f + 0.60f * v),
+                        start = Offset(c.x + ca * inner, c.y + sa * inner),
+                        end = Offset(c.x + ca * (inner + len), c.y + sa * (inner + len)),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
+                }
+            }
+        },
+    )
 }
 
 private val EQ_BANDS = intArrayOf(1, 5, 9)
 
-/** Three small bars (low / mid / high) for the current song's row. Driven by the real analysis. */
+/** Three small bars (low / mid / high) marking the current song's row. Driven by the real analysis. */
 @Composable
 fun EqBars(playing: Boolean, color: Color, modifier: Modifier = Modifier) {
     val reactor = rememberAudioReactor(playing)

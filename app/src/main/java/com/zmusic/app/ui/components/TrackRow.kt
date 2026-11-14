@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,12 +19,16 @@ import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.ui.theme.TimeStyle
 import com.zmusic.app.util.formatTime
 
-/** Plain scannable row. Spacing does the grouping. The current song is marked by colour and live bars. */
+/**
+ * Plain, scannable row. Spacing does the grouping. The current song is marked by colour and live
+ * bars. Pass [number] inside an album to show the position instead of nothing.
+ */
 @Composable
 fun TrackRow(
     track: TrackEntity,
     isCurrent: Boolean,
     isPlaying: Boolean = false,
+    number: Int? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -32,11 +37,18 @@ fun TrackRow(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 8.dp),
+            .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Artwork(track.albumId, track.uri, Modifier.size(48.dp), corner = 6.dp, px = 128)
+        if (number != null) {
+            Text(
+                text = number.toString().padStart(2, '0'),
+                style = TimeStyle,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                modifier = Modifier.width(22.dp),
+            )
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 text = track.title,
@@ -48,9 +60,10 @@ fun TrackRow(
             Text(
                 text = "${track.artist} \u00B7 ${track.album}",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.70f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
         if (isCurrent) {
@@ -59,7 +72,7 @@ fun TrackRow(
         Text(
             text = formatTime(track.durationMs),
             style = TimeStyle,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
         )
     }
 }

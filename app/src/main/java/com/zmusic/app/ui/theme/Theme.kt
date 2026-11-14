@@ -1,6 +1,8 @@
+@file:OptIn(ExperimentalTextApi::class)
+
 package com.zmusic.app.ui.theme
 
-import android.graphics.Typeface
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -8,7 +10,6 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -18,23 +19,27 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zmusic.app.R
 
 /*
- * Direction: grounded, editorial, restrained.
- * Neutrals are #0B0B0D (dark) and #F6F6F4 (light), nudged by ONE muted seed colour taken from the
- * current song's cover. The seed's chroma is capped so a bright cover can never blow out text
- * contrast. Structure comes from spacing and hairlines, not boxes.
+ * Direction: calm, typographic, cover-free. Neutrals are #0B0B0D (dark) and #F6F6F4 (light),
+ * nudged by one muted seed colour derived from the current song's name. The seed's chroma is
+ * capped so contrast always holds. The identity of the app is the live audio visual and the type,
+ * not artwork.
  */
 
-/** Used when nothing is playing or a song has no cover. A muted warm tone. */
+/** Used when nothing is playing. A muted warm tone. */
 val DefaultSeed = Color(0xFFC9A27A)
 
-/** Stable muted seed for songs without artwork. */
+/** Stable muted seed for a song or album name. */
 fun seedFromText(text: String): Color {
     val hue = ((text.hashCode() and 0x7fffffff) % 360).toFloat()
     return Color.hsv(hue, 0.30f, 0.80f)
@@ -46,7 +51,7 @@ private fun hsvOf(c: Color): FloatArray {
     return out
 }
 
-/** Colour for the soft wash behind Now Playing: the seed pulled toward a calm, low-chroma tone. */
+/** Soft tone for glows and tints: the seed pulled toward a calm, low-chroma colour. */
 fun washTone(seed: Color, dark: Boolean): Color {
     val h = hsvOf(seed)
     return if (dark) Color.hsv(h[0], h[1].coerceAtMost(0.50f), 0.62f)
@@ -56,7 +61,6 @@ fun washTone(seed: Color, dark: Boolean): Color {
 fun buildColorScheme(seed: Color, dark: Boolean): ColorScheme {
     val h = hsvOf(seed)
     val hue = h[0]
-    // Chroma cap: bright covers never push the accent or surfaces into harsh territory.
     val chroma = h[1].coerceIn(0.14f, 0.38f)
     return if (dark) {
         val bg = lerpColor(Color(0xFF0B0B0D), Color.hsv(hue, chroma, 0.40f), 0.08f)
@@ -129,59 +133,54 @@ object AppTheme {
         @Composable @ReadOnlyComposable get() = LocalExtended.current
 }
 
-/** 4/8 spacing scale. */
-object Space {
-    val xs = 4.dp
-    val sm = 8.dp
-    val md = 12.dp
-    val lg = 16.dp
-    val xl = 24.dp
-    val xxl = 32.dp
-}
+// Manrope (UI) and JetBrains Mono (timestamps), both SIL OFL, downloaded into res/font at build time.
+private fun manrope(w: Int) = Font(
+    R.font.manrope,
+    FontWeight(w),
+    variationSettings = FontVariation.Settings(FontVariation.weight(w)),
+)
 
-private val Sans = FontFamily.Default
-private val Condensed = FontFamily(Typeface.create("sans-serif-condensed", Typeface.BOLD))
+private fun mono(w: Int) = Font(
+    R.font.jetbrains_mono,
+    FontWeight(w),
+    variationSettings = FontVariation.Settings(FontVariation.weight(w)),
+)
+
+private val Sans = FontFamily(manrope(400), manrope(500), manrope(600), manrope(700), manrope(800))
+private val Mono = FontFamily(mono(400), mono(500))
 
 /** Monospaced tabular figures for timestamps. */
 val TimeStyle = TextStyle(
-    fontFamily = FontFamily.Monospace,
-    fontFeatureSettings = "tnum",
+    fontFamily = Mono,
+    fontWeight = FontWeight.Normal,
     fontSize = 12.sp,
     lineHeight = 16.sp,
 )
 
-/** Light, tight numerals for big counts. */
-val NumberStyle = TextStyle(
-    fontFamily = Sans,
-    fontWeight = FontWeight.Light,
-    fontFeatureSettings = "tnum",
-    letterSpacing = (-2).sp,
-)
-
 private val AppTypography = Typography(
-    displayLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.ExtraBold, fontSize = 56.sp, lineHeight = 58.sp, letterSpacing = (-1.2).sp),
-    displayMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.ExtraBold, fontSize = 44.sp, lineHeight = 46.sp, letterSpacing = (-1).sp),
-    displaySmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.ExtraBold, fontSize = 34.sp, lineHeight = 38.sp, letterSpacing = (-0.6).sp),
-    headlineLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 34.sp, letterSpacing = (-0.4).sp),
-    headlineMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 26.sp, lineHeight = 30.sp, letterSpacing = (-0.3).sp),
-    headlineSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 26.sp, letterSpacing = (-0.2).sp),
-    titleLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 24.sp),
-    titleMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp, letterSpacing = 0.1.sp),
-    titleSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
-    bodyLarge = TextStyle(fontFamily = Sans, fontSize = 16.sp, lineHeight = 24.sp),
-    bodyMedium = TextStyle(fontFamily = Sans, fontSize = 14.sp, lineHeight = 20.sp),
-    bodySmall = TextStyle(fontFamily = Sans, fontSize = 12.sp, lineHeight = 16.sp),
-    labelLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
-    labelMedium = TextStyle(fontFamily = Condensed, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 1.4.sp),
-    labelSmall = TextStyle(fontFamily = Condensed, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 1.2.sp),
+    displayLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.ExtraBold, fontSize = 52.sp, lineHeight = 56.sp, letterSpacing = (-1.4).sp),
+    displayMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.ExtraBold, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-1.1).sp),
+    displaySmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.ExtraBold, fontSize = 32.sp, lineHeight = 36.sp, letterSpacing = (-0.6).sp),
+    headlineLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 32.sp, letterSpacing = (-0.5).sp),
+    headlineMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 28.sp, letterSpacing = (-0.4).sp),
+    headlineSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp, letterSpacing = (-0.3).sp),
+    titleLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 24.sp, letterSpacing = (-0.2).sp),
+    titleMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp),
+    titleSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
+    bodyLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 24.sp),
+    bodyMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
+    bodySmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp),
+    labelLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
+    labelMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 1.2.sp),
+    labelSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 1.0.sp),
 )
 
 private val AppShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
-    small = RoundedCornerShape(6.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(24.dp),
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 @Composable
