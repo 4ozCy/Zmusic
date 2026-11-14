@@ -1,5 +1,9 @@
 package com.zmusic.app.ui.library
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +29,15 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.data.TrackEntity
@@ -45,6 +55,7 @@ import com.zmusic.app.ui.components.tilt3DOnPress
 import com.zmusic.app.ui.components.topFade
 import com.zmusic.app.ui.theme.AppTheme
 import com.zmusic.app.ui.theme.IndexStyle
+import com.zmusic.app.ui.theme.Nocturne
 import java.util.Calendar
 import kotlin.random.Random
 
@@ -137,6 +148,7 @@ private fun TodayMixHeader(mix: List<TrackEntity>, player: PlayerController) {
         Text(
             text = "Today's mix",
             style = MaterialTheme.typography.headlineSmall,
+            color = AppTheme.extended.text,
             modifier = Modifier.weight(1f),
         )
         TextAction("Play", Icons.Rounded.PlayArrow, accent = true) {
@@ -151,27 +163,27 @@ private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
     Text(
         text = title,
         style = MaterialTheme.typography.headlineSmall,
+        color = AppTheme.extended.text,
         modifier = modifier.padding(horizontal = 24.dp),
     )
 }
 
-/** The library counter as one quiet line of type, then the three action pills. */
+/** The library at a glance as three glass counters that count up, then the three action pills. */
 @Composable
 private fun LibrarySummary(tracks: List<TrackEntity>, player: PlayerController, onOpenLibrary: () -> Unit) {
     val albums = remember(tracks) { tracks.map { it.albumId }.distinct().size }
     val artists = remember(tracks) { tracks.map { it.artist }.distinct().size }
-    val line = remember(tracks.size, albums, artists) {
-        "${plural(tracks.size, "song")}  •  ${plural(albums, "album")}  •  ${plural(artists, "artist")}"
-    }
 
-    Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-        Text(
-            text = line,
-            style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-        Spacer(Modifier.height(22.dp))
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            StatTile(tracks.size, if (tracks.size == 1) "Song" else "Songs", Modifier.weight(1f))
+            StatTile(albums, if (albums == 1) "Album" else "Albums", Modifier.weight(1f))
+            StatTile(artists, if (artists == 1) "Artist" else "Artists", Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(18.dp))
         // A LazyRow so the pills scroll rather than squash on narrow screens or large font scales.
         LazyRow(
             contentPadding = PaddingValues(horizontal = 24.dp),
@@ -194,29 +206,56 @@ private fun LibrarySummary(tracks: List<TrackEntity>, player: PlayerController, 
     }
 }
 
-private fun plural(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+/** One counter. The number runs up from zero the first time it appears and follows later changes. */
+@Composable
+private fun StatTile(value: Int, label: String, modifier: Modifier = Modifier) {
+    var target by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(value) { target = value }
+    val shown by animateIntAsState(target, tween(900, easing = FastOutSlowInEasing), label = "stat")
+    Column(
+        modifier
+            .frostedGlassCard(RoundedCornerShape(20.dp), surfaceAlpha = 0.10f)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = shown.toString(),
+            style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"),
+            color = AppTheme.extended.text,
+            maxLines = 1,
+        )
+        Text(
+            text = label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = AppTheme.extended.textSoft,
+            maxLines = 1,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+}
 
 /**
  * One recently added song as a floating glass tile: index numeral, title, artist. No picture.
  * Pressing tilts the tile in 3D toward the finger; the song that is playing shows live bars in
- * the corner and an amber numeral.
+ * the corner, an amber numeral and a rim of amber-to-indigo light.
  */
 @Composable
 private fun RecentTile(position: Int, track: TrackEntity, isCurrent: Boolean, onClick: () -> Unit) {
     val amber = MaterialTheme.colorScheme.primary
+    val shape = RoundedCornerShape(26.dp)
     Column(
         Modifier
             .width(164.dp)
             .height(152.dp)
             .tilt3DOnPress(onClickLabel = "Play ${track.title}", onClick = onClick)
-            .frostedGlassCard(RoundedCornerShape(26.dp), surfaceAlpha = 0.12f)
+            .frostedGlassCard(shape, surfaceAlpha = 0.12f)
+            .then(if (isCurrent) Modifier.border(1.5.dp, CurrentRim, shape) else Modifier)
             .padding(horizontal = 16.dp, vertical = 16.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = position.toString().padStart(2, '0'),
                 style = IndexStyle,
-                color = if (isCurrent) amber else AppTheme.extended.faint,
+                color = if (isCurrent) amber else AppTheme.extended.textDim,
                 modifier = Modifier.weight(1f),
             )
             if (isCurrent) EqBars(color = amber, modifier = Modifier.size(width = 16.dp, height = 14.dp))
@@ -225,19 +264,22 @@ private fun RecentTile(position: Int, track: TrackEntity, isCurrent: Boolean, on
         Text(
             text = track.title,
             style = MaterialTheme.typography.titleMedium,
+            color = AppTheme.extended.text,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = track.artist,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = AppTheme.extended.textSoft,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp),
         )
     }
 }
+
+private val CurrentRim = Brush.linearGradient(listOf(Nocturne.Amber, Nocturne.Indigo.copy(alpha = 0.55f)))
 
 @Composable
 fun LoadingIndicator(modifier: Modifier = Modifier) {
@@ -256,11 +298,11 @@ fun EmptyLibrary(scanning: Boolean, onRefresh: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("No music found", style = MaterialTheme.typography.headlineSmall)
+        Text("No music found", style = MaterialTheme.typography.headlineSmall, color = AppTheme.extended.text)
         Text(
             "Zmusic looks for audio files on this device that Android has indexed. Add some music, then rescan.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = AppTheme.extended.textSoft,
         )
         GlassPill(if (scanning) "Scanning…" else "Scan again", Icons.Rounded.Refresh, Modifier.padding(top = 8.dp)) {
             if (!scanning) onRefresh()

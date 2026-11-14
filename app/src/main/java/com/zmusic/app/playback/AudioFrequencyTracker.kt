@@ -1,6 +1,7 @@
 package com.zmusic.app.playback
 
 import android.media.audiofx.Visualizer
+import com.zmusic.app.debug.BugLog
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableLongStateOf
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,6 +108,7 @@ class AudioFrequencyTracker {
         } catch (e: RuntimeException) {
             // No permission, effect not available on this device, or the session just went away.
             runCatching { created?.release() }
+            BugLog.w("Visualizer", "Could not attach to audio session $sessionId, using the PCM tap instead", e)
             false
         }
     }

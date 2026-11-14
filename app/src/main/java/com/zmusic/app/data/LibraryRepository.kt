@@ -1,5 +1,6 @@
 package com.zmusic.app.data
 
+import com.zmusic.app.debug.BugLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +36,7 @@ class LibraryRepository(
             try {
                 withContext(Dispatchers.IO) {
                     val found = scanner.scan()
+                    BugLog.i("Library", "Scan found ${found.size} audio files")
                     dao.upsertAll(found)
                     val foundIds = found.mapTo(HashSet()) { it.mediaStoreId }
                     dao.allIds()
@@ -48,6 +50,7 @@ class LibraryRepository(
                 throw e
             } catch (e: Exception) {
                 _scanError.value = e.message ?: "Library scan failed"
+                BugLog.e("Library", "Scan failed: ${e.message ?: e.javaClass.simpleName}", e)
             } finally {
                 _scanning.value = false
             }

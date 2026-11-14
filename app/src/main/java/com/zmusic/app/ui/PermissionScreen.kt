@@ -21,6 +21,7 @@ import com.zmusic.app.ui.components.Eyebrow
 import com.zmusic.app.ui.components.GlassPill
 import com.zmusic.app.ui.components.KineticGyroscope
 import com.zmusic.app.ui.components.Reveal
+import com.zmusic.app.ui.theme.AppTheme
 
 @Composable
 fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () -> Unit) {
@@ -35,7 +36,7 @@ fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () ->
             Reveal(80) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Eyebrow("Zmusic", color = MaterialTheme.colorScheme.primary)
-                    Text("Your music,\nright where it lives.", style = MaterialTheme.typography.displayMedium)
+                    Text("Your music,\nright where it lives.", style = MaterialTheme.typography.displayMedium, color = AppTheme.extended.text)
                     Text(
                         if (denied) {
                             "Without access to audio files Zmusic can't find your music. You can allow it again, or turn it on in system settings."
@@ -43,7 +44,7 @@ fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () ->
                             "Zmusic needs permission to read the audio files on this device so it can build your library. Your music never leaves your phone."
                         },
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = AppTheme.extended.textSoft,
                     )
                 }
             }
