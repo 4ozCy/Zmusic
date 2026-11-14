@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.zmusic.app.ui.components.AmbientAudioShaderBackground
 import com.zmusic.app.ui.components.Eyebrow
 import com.zmusic.app.ui.components.GlassPill
+import com.zmusic.app.ui.components.GyroVariant
 import com.zmusic.app.ui.components.KineticGyroscope
 import com.zmusic.app.ui.components.Reveal
 import com.zmusic.app.ui.theme.AppTheme
@@ -32,7 +33,7 @@ fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () ->
             verticalArrangement = Arrangement.Center,
         ) {
             // The idle gyroscope doubles as the brand mark; it is the same sculpture that comes alive on playback.
-            Reveal(0) { KineticGyroscope(Modifier.padding(bottom = 28.dp).size(104.dp), halo = false, segments = 60) }
+            Reveal(0) { KineticGyroscope(Modifier.padding(bottom = 28.dp).size(104.dp), halo = false, segments = 60, variant = GyroVariant.Gyroscope) }
             Reveal(80) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Eyebrow("Zmusic", color = MaterialTheme.colorScheme.primary)

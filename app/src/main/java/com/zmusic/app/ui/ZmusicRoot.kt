@@ -66,7 +66,9 @@ import com.zmusic.app.ui.components.AmbientAudioShaderBackground
 import com.zmusic.app.ui.components.DockDestination
 import com.zmusic.app.ui.components.FloatingChrome
 import com.zmusic.app.ui.components.FloatingGlassNavAndMiniPlayer
+import com.zmusic.app.ui.components.GyroVariant
 import com.zmusic.app.ui.components.LocalAudioTracker
+import com.zmusic.app.ui.components.LocalGyroVariant
 import com.zmusic.app.ui.components.rememberAudioFrequencyTracker
 import com.zmusic.app.ui.library.HomeScreen
 import com.zmusic.app.ui.library.LibraryScreen
@@ -141,7 +143,18 @@ fun ZmusicRoot(container: AppContainer) {
     ZmusicTheme {
         // The single tracker every live visual draws from.
         val tracker = rememberAudioFrequencyTracker(playing = playerState.isPlaying, captureAllowed = captureAllowed)
-        CompositionLocalProvider(LocalAudioTracker provides tracker) {
+        // Which sculpture Now Playing shows. One is drawn at launch and each new song draws
+        // another, never the same twice running. Saved, so turning the screen does not reshuffle it.
+        var variant by rememberSaveable { mutableStateOf(GyroVariant.next(null)) }
+        var variantSong by rememberSaveable { mutableStateOf<String?>(null) }
+        val song = playerState.mediaId
+        LaunchedEffect(song) {
+            if (song == null || song == variantSong) return@LaunchedEffect
+            // The first song keeps the sculpture drawn at launch.
+            if (variantSong != null) variant = GyroVariant.next(variant)
+            variantSong = song
+        }
+        CompositionLocalProvider(LocalAudioTracker provides tracker, LocalGyroVariant provides variant) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 if (!granted) {
                     PermissionScreen(
