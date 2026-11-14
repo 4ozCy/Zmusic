@@ -1,5 +1,8 @@
 package com.zmusic.app.ui.components
 
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.os.Build
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -10,11 +13,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.ui.theme.Nocturne
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -29,8 +36,9 @@ import kotlin.math.sin
  * middle's), floating over a tilted magic circle of spectrum ticks, with a four-point star
  * burning at the centre. The geometry is true 3D (every vertex is rotated by 3x3 matrices,
  * projected with a perspective divide and painted back to front after a depth sort). Each hoop
- * is shaded as one continuous piece: tone and sheen blend smoothly all the way round, a bevel
- * line runs along every rim, and a star glint sits on each highlight.
+ * is shaded as one continuous piece: light is worked out where faces meet and blended across each
+ * face, so tone and sheen run all the way round without a step; a bevel line runs along every
+ * rim, and a star glint sits on each highlight. The magic circle's rings are single strokes.
  *
  * Audio mapping:
  * - mid    -> how fast the gimbals turn
@@ -39,12 +47,13 @@ import kotlin.math.sin
  * - treble -> how wide the sheen opens and how big the glints flare
  * - the twelve analysed bands -> tick lengths, mirrored left and right
  *
- * Cost: all geometry lives in arrays allocated once in [GyroModel]; a frame allocates nothing and
- * issues several hundred small draw ops. It redraws from the tracker's frame tick, never recomposes.
+ * Cost: all geometry lives in arrays allocated once in [GyroModel]; a frame allocates next to
+ * nothing (a gradient per halo circle) and issues several hundred small draw ops. It redraws from
+ * the tracker's frame tick, never recomposes.
  *
  * @param halo draw the magic circle, glints and shockwave. Turn it off for small sizes (mini
  *   player, brand mark).
- * @param segments faces per hoop. 120 keeps the shading stepless at hero size; 36 is plenty below ~64dp.
+ * @param segments faces per hoop. 120 keeps the outline round at hero size; 36 is plenty below ~64dp.
  */
 @Composable
 fun KineticGyroscope(
@@ -69,6 +78,10 @@ fun KineticGyroscope(
             )
             val star = starPath(waist = 0.085f)
             val path = Path()
+            // Blended shading needs per-corner colours, which the platform only draws on a
+            // hardware canvas from Android 10. Older versions get one flat colour per face.
+            val blended = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+            val meshPaint = Paint()
             onDrawBehind {
                 tracker.frame.longValue // redraw every frame without recomposing
                 val t = tracker.seconds
@@ -94,6 +107,13 @@ fun KineticGyroscope(
                     drawCircle(glow, radius = 1f, center = Offset.Zero, alpha = 0.30f + 0.60f * bass)
                 }
 
+                // The far halves of the halo's circles pass behind the hoops, the near halves in front.
+                if (halo) {
+                    drawLoop(model, 0, near = false, path, GuideCircle)
+                    drawLoop(model, 1, near = false, path, Shockwave)
+                }
+
+                val native = drawContext.canvas.nativeCanvas
                 val xy = model.xy
                 for (n in 0 until model.count) {
                     val i = model.order[n]
@@ -109,21 +129,30 @@ fun KineticGyroscope(
                                     start = Offset(xy[o], xy[o + 1]),
                                     end = Offset(xy[o + 2], xy[o + 3]),
                                     strokeWidth = model.width[i],
-                                    // Round ends on the free-standing ticks; butt on chained arcs,
-                                    // where translucent round caps would stack into beads.
-                                    cap = if (i < model.arcStart) StrokeCap.Round else StrokeCap.Butt,
+                                    cap = StrokeCap.Round,
                                 )
                             }
                         }
 
                         else -> {
-                            path.reset()
-                            path.moveTo(xy[o], xy[o + 1])
-                            path.lineTo(xy[o + 2], xy[o + 3])
-                            path.lineTo(xy[o + 4], xy[o + 5])
-                            path.lineTo(xy[o + 6], xy[o + 7])
-                            path.close()
-                            drawPath(path, Color(model.fill[i]))
+                            if (blended) {
+                                native.drawVertices(
+                                    Canvas.VertexMode.TRIANGLES,
+                                    12, model.mesh, i * 12,
+                                    null, 0,
+                                    model.meshColor, i * 6,
+                                    null, 0, 0,
+                                    meshPaint,
+                                )
+                            } else {
+                                path.reset()
+                                path.moveTo(xy[o], xy[o + 1])
+                                path.lineTo(xy[o + 2], xy[o + 3])
+                                path.lineTo(xy[o + 4], xy[o + 5])
+                                path.lineTo(xy[o + 6], xy[o + 7])
+                                path.close()
+                                drawPath(path, Color(model.fill[i]))
+                            }
                             // Bevel along both rims: finishes the edge, and keeps a hoop visible
                             // when it turns exactly edge-on to the viewer.
                             val line = Color(model.edge[i])
@@ -131,6 +160,11 @@ fun KineticGyroscope(
                             drawLine(line, Offset(xy[o + 6], xy[o + 7]), Offset(xy[o + 4], xy[o + 5]), ink, StrokeCap.Round)
                         }
                     }
+                }
+
+                if (halo) {
+                    drawLoop(model, 0, near = true, path, GuideCircle)
+                    drawLoop(model, 1, near = true, path, Shockwave)
                 }
 
                 // Glints ride on top of everything.
@@ -144,6 +178,34 @@ fun KineticGyroscope(
                 }
             }
         },
+    )
+}
+
+/**
+ * Half of one of the halo's circles as a single stroke, so there are no joints to show. Its
+ * opacity fades with distance through one gradient shared by both halves.
+ */
+private fun DrawScope.drawLoop(model: GyroModel, index: Int, near: Boolean, path: Path, color: Color) {
+    val nearAlpha = model.loopNearAlpha[index]
+    val farAlpha = model.loopFarAlpha[index]
+    val nearY = model.loopNearY[index]
+    val farY = model.loopFarY[index]
+    if ((nearAlpha <= 0f && farAlpha <= 0f) || abs(nearY - farY) < 1f) return
+    val points = model.loopXY
+    val half = (model.loopPoints - 1) / 2
+    val first = index * model.loopStride + (if (near) 0 else half) * 2
+    path.reset()
+    path.moveTo(points[first], points[first + 1])
+    for (k in 1..half) path.lineTo(points[first + k * 2], points[first + k * 2 + 1])
+    drawPath(
+        path = path,
+        brush = Brush.verticalGradient(
+            0f to color.copy(alpha = farAlpha),
+            1f to color.copy(alpha = nearAlpha),
+            startY = farY,
+            endY = nearY,
+        ),
+        style = Stroke(width = model.loopWidth[index], join = StrokeJoin.Round),
     )
 }
 
@@ -185,3 +247,5 @@ private fun starPath(waist: Float): Path = Path().apply {
 
 private val CoreWarm = Color(0xFFFFD9A0)
 private val GlintHalo = Color(0x55FFE9C4)
+private val GuideCircle = Color(0xFFCCD1FA)
+private val Shockwave = Color(0xFFFFE6BD)
