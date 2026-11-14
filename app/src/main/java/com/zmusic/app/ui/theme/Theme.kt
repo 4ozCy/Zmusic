@@ -59,11 +59,11 @@ object Nocturne {
 
 private val Scheme = darkColorScheme(
     primary = Nocturne.Amber,
-    onPrimary = Nocturne.Obsidian,
+    onPrimary = Color.White,
     primaryContainer = Color(0xFF3A2C1D),
     onPrimaryContainer = Nocturne.Alabaster,
     secondary = Nocturne.Silver,
-    onSecondary = Nocturne.Obsidian,
+    onSecondary = Color.White,
     secondaryContainer = Nocturne.Smoke,
     onSecondaryContainer = Nocturne.Alabaster,
     tertiary = Nocturne.Indigo,
