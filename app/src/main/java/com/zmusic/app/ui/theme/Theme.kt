@@ -2,23 +2,17 @@
 
 package com.zmusic.app.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp as lerpColor
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -30,98 +24,66 @@ import androidx.compose.ui.unit.sp
 import com.zmusic.app.R
 
 /*
- * Direction: calm, typographic, cover-free. Neutrals are #0B0B0D (dark) and #F6F6F4 (light),
- * nudged by one muted seed colour derived from the current song's name. The seed's chroma is
- * capped so contrast always holds. The identity of the app is the live audio visual and the type,
- * not artwork.
+ * Direction: nocturnal liquid glass. A deep obsidian room lit from behind by slow aurora light
+ * that follows the music, with a few floating panes of smoked glass in front of it. Type does the
+ * talking; there is no artwork anywhere.
+ *
+ * The app is deliberately dark-only: the whole look depends on light glowing through glass.
+ * Accent is scarce on purpose. Amber marks "this is playing / do this", indigo only ever appears
+ * as light (aurora, glow, refraction), never as a control colour.
  */
 
-/** Used when nothing is playing. A muted warm tone. */
-val DefaultSeed = Color(0xFFC9A27A)
+/** Raw palette. Plain top-level values so non-composable modifiers and shaders can use them. */
+object Nocturne {
+    /** Page base. */
+    val Obsidian = Color(0xFF070709)
 
-/** Stable muted seed for a song or album name. */
-fun seedFromText(text: String): Color {
-    val hue = ((text.hashCode() and 0x7fffffff) % 360).toFloat()
-    return Color.hsv(hue, 0.30f, 0.80f)
+    /** Smoked charcoal glass body. */
+    val Smoke = Color(0xFF14151A)
+
+    /** Primary type. */
+    val Alabaster = Color(0xFFF5F5F7)
+
+    /** Secondary type. */
+    val Silver = Color(0xFF8E8E93)
+
+    /** Warm light. The one accent used on controls and the current song. */
+    val Amber = Color(0xFFE2A96B)
+
+    /** Cool light. Aurora and refraction only. */
+    val Indigo = Color(0xFF6C6FD9)
+
+    /** Deep blue-grey that sits between the two lights in the aurora. */
+    val Slate = Color(0xFF2B3A67)
 }
 
-private fun hsvOf(c: Color): FloatArray {
-    val out = FloatArray(3)
-    android.graphics.Color.colorToHSV(c.toArgb(), out)
-    return out
-}
-
-/** Soft tone for glows and tints: the seed pulled toward a calm, low-chroma colour. */
-private fun washTone(seed: Color, dark: Boolean): Color {
-    val h = hsvOf(seed)
-    return if (dark) Color.hsv(h[0], h[1].coerceAtMost(0.50f), 0.62f)
-    else Color.hsv(h[0], h[1].coerceAtMost(0.35f), 0.95f)
-}
-
-fun buildColorScheme(seed: Color, dark: Boolean): ColorScheme {
-    val h = hsvOf(seed)
-    val hue = h[0]
-    val chroma = h[1].coerceIn(0.14f, 0.38f)
-    return if (dark) {
-        val bg = lerpColor(Color(0xFF0B0B0D), Color.hsv(hue, chroma, 0.40f), 0.08f)
-        val ink = Color(0xFFEDEDEF)
-        val primary = Color.hsv(hue, chroma.coerceAtMost(0.34f), 0.93f)
-        fun step(t: Float) = lerpColor(bg, ink, t)
-        darkColorScheme(
-            primary = primary,
-            onPrimary = Color(0xFF0B0B0D),
-            primaryContainer = lerpColor(bg, primary, 0.20f),
-            onPrimaryContainer = ink,
-            secondary = lerpColor(ink, bg, 0.30f),
-            onSecondary = bg,
-            secondaryContainer = step(0.10f),
-            onSecondaryContainer = ink,
-            tertiary = primary,
-            background = bg,
-            onBackground = ink,
-            surface = bg,
-            onSurface = ink,
-            surfaceVariant = step(0.10f),
-            onSurfaceVariant = lerpColor(ink, bg, 0.30f),
-            surfaceContainerLowest = lerpColor(bg, Color.Black, 0.40f),
-            surfaceContainerLow = step(0.03f),
-            surfaceContainer = step(0.05f),
-            surfaceContainerHigh = step(0.08f),
-            surfaceContainerHighest = step(0.11f),
-            outline = step(0.30f),
-            outlineVariant = step(0.12f),
-        )
-    } else {
-        val bg = lerpColor(Color(0xFFF6F6F4), Color.hsv(hue, chroma, 0.95f), 0.10f)
-        val ink = Color(0xFF111113)
-        val primary = Color.hsv(hue, chroma.coerceIn(0.30f, 0.60f), 0.38f)
-        fun step(t: Float) = lerpColor(bg, ink, t)
-        lightColorScheme(
-            primary = primary,
-            onPrimary = Color.White,
-            primaryContainer = lerpColor(bg, primary, 0.16f),
-            onPrimaryContainer = ink,
-            secondary = lerpColor(ink, bg, 0.35f),
-            onSecondary = Color.White,
-            secondaryContainer = step(0.07f),
-            onSecondaryContainer = ink,
-            tertiary = primary,
-            background = bg,
-            onBackground = ink,
-            surface = bg,
-            onSurface = ink,
-            surfaceVariant = step(0.07f),
-            onSurfaceVariant = lerpColor(ink, bg, 0.35f),
-            surfaceContainerLowest = Color.White,
-            surfaceContainerLow = step(0.025f),
-            surfaceContainer = step(0.045f),
-            surfaceContainerHigh = step(0.07f),
-            surfaceContainerHighest = step(0.10f),
-            outline = step(0.30f),
-            outlineVariant = step(0.12f),
-        )
-    }
-}
+private val Scheme = darkColorScheme(
+    primary = Nocturne.Amber,
+    onPrimary = Nocturne.Obsidian,
+    primaryContainer = Color(0xFF3A2C1D),
+    onPrimaryContainer = Nocturne.Alabaster,
+    secondary = Nocturne.Silver,
+    onSecondary = Nocturne.Obsidian,
+    secondaryContainer = Nocturne.Smoke,
+    onSecondaryContainer = Nocturne.Alabaster,
+    tertiary = Nocturne.Indigo,
+    onTertiary = Nocturne.Alabaster,
+    background = Nocturne.Obsidian,
+    onBackground = Nocturne.Alabaster,
+    surface = Nocturne.Obsidian,
+    onSurface = Nocturne.Alabaster,
+    surfaceVariant = Nocturne.Smoke,
+    onSurfaceVariant = Nocturne.Silver,
+    surfaceContainerLowest = Color(0xFF040405),
+    surfaceContainerLow = Color(0xFF0D0D10),
+    surfaceContainer = Color(0xFF111216),
+    surfaceContainerHigh = Nocturne.Smoke,
+    surfaceContainerHighest = Color(0xFF1C1D24),
+    outline = Color(0xFF4A4B52),
+    outlineVariant = Color(0xFF26272D),
+    error = Color(0xFFE8857A),
+    onError = Nocturne.Obsidian,
+)
 
 /** Roles Material 3 has no slot for. */
 @Immutable
@@ -130,13 +92,23 @@ data class ExtendedColors(
     val hairline: Color,
     /** Tertiary text: durations, counts, row numbers. */
     val faint: Color,
-    /** Soft tone for glows, already adjusted for light or dark. */
-    val wash: Color,
+    /** Warm light. */
+    val amber: Color,
+    /** Cool light. */
+    val indigo: Color,
+    /** Mid tone between the two lights. */
+    val slate: Color,
 )
 
-private val LocalExtended = staticCompositionLocalOf {
-    ExtendedColors(hairline = Color(0x1AFFFFFF), faint = Color(0x8CFFFFFF), wash = DefaultSeed)
-}
+private val Extended = ExtendedColors(
+    hairline = Nocturne.Alabaster.copy(alpha = 0.10f),
+    faint = Nocturne.Silver.copy(alpha = 0.82f),
+    amber = Nocturne.Amber,
+    indigo = Nocturne.Indigo,
+    slate = Nocturne.Slate,
+)
+
+private val LocalExtended = staticCompositionLocalOf { Extended }
 
 object AppTheme {
     val extended: ExtendedColors
@@ -159,7 +131,7 @@ private fun mono(w: Int) = Font(
 private val Sans = FontFamily(manrope(400), manrope(500), manrope(600), manrope(700), manrope(800))
 private val Mono = FontFamily(mono(400), mono(500))
 
-/** Monospaced tabular figures for timestamps. */
+/** Monospaced tabular figures for timestamps, row numbers and counts. */
 val TimeStyle = TextStyle(
     fontFamily = Mono,
     fontWeight = FontWeight.Normal,
@@ -167,14 +139,13 @@ val TimeStyle = TextStyle(
     lineHeight = 16.sp,
 )
 
-/** Large counts. Tabular figures so digits don't shift while a number animates. */
-val NumberStyle = TextStyle(
-    fontFamily = Sans,
-    fontWeight = FontWeight.ExtraBold,
-    fontSize = 72.sp,
-    lineHeight = 76.sp,
-    letterSpacing = (-2).sp,
-    fontFeatureSettings = "tnum",
+/** The big index numerals on the glass tiles (01, 02, 03). */
+val IndexStyle = TextStyle(
+    fontFamily = Mono,
+    fontWeight = FontWeight.Medium,
+    fontSize = 13.sp,
+    lineHeight = 16.sp,
+    letterSpacing = 1.sp,
 )
 
 private val AppTypography = Typography(
@@ -191,35 +162,27 @@ private val AppTypography = Typography(
     bodyMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
     bodySmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp),
     labelLarge = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
-    labelMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 1.2.sp),
-    labelSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 1.0.sp),
+    labelMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 1.6.sp),
+    labelSmall = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 10.sp, lineHeight = 14.sp, letterSpacing = 1.2.sp),
 )
 
+/*
+ * Shape is a small vocabulary, not one radius: full pills for things you press and for the dock,
+ * 26dp for the featured tiles, 22dp for the mini player, and no container at all for list rows.
+ */
 private val AppShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
     small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(20.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(22.dp),
+    extraLarge = RoundedCornerShape(26.dp),
 )
 
 @Composable
-fun ZmusicTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    seed: Color = DefaultSeed,
-    content: @Composable () -> Unit,
-) {
-    val scheme = remember(seed, darkTheme) { buildColorScheme(seed, darkTheme) }
-    val extended = remember(seed, darkTheme) {
-        ExtendedColors(
-            hairline = scheme.onSurface.copy(alpha = 0.10f),
-            faint = scheme.onSurface.copy(alpha = 0.55f),
-            wash = washTone(seed, darkTheme),
-        )
-    }
-    CompositionLocalProvider(LocalExtended provides extended) {
+fun ZmusicTheme(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalExtended provides Extended) {
         MaterialTheme(
-            colorScheme = scheme,
+            colorScheme = Scheme,
             typography = AppTypography,
             shapes = AppShapes,
             content = content,

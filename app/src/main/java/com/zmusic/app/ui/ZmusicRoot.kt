@@ -1,6 +1,7 @@
 package com.zmusic.app.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -9,44 +10,30 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,16 +41,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -79,20 +58,22 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.zmusic.app.AppContainer
 import com.zmusic.app.playback.PlayerUiState
-import com.zmusic.app.ui.components.LocalAudioReactor
-import com.zmusic.app.ui.components.MiniPlayer
-import com.zmusic.app.ui.components.pressClick
-import com.zmusic.app.ui.components.rememberAudioReactor
+import com.zmusic.app.ui.components.AmbientAudioShaderBackground
+import com.zmusic.app.ui.components.DockDestination
+import com.zmusic.app.ui.components.FloatingChrome
+import com.zmusic.app.ui.components.FloatingGlassNavAndMiniPlayer
+import com.zmusic.app.ui.components.LocalAudioTracker
+import com.zmusic.app.ui.components.rememberAudioFrequencyTracker
 import com.zmusic.app.ui.library.HomeScreen
 import com.zmusic.app.ui.library.LibraryScreen
 import com.zmusic.app.ui.library.LibraryViewModel
 import com.zmusic.app.ui.library.SearchScreen
-import com.zmusic.app.ui.nowplaying.NowPlayingScreen
-import com.zmusic.app.ui.theme.AppTheme
-import com.zmusic.app.ui.theme.DefaultSeed
+import com.zmusic.app.ui.nowplaying.Expanded3DNowPlayingSheet
+import com.zmusic.app.ui.nowplaying.NowPlayingActions
+import com.zmusic.app.ui.nowplaying.SheetSpring
 import com.zmusic.app.ui.theme.ZmusicTheme
-import com.zmusic.app.ui.theme.seedFromText
-import kotlin.math.roundToInt
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 
 private val AUDIO_PERMISSION = if (Build.VERSION.SDK_INT >= 33) {
     Manifest.permission.READ_MEDIA_AUDIO
@@ -100,13 +81,17 @@ private val AUDIO_PERMISSION = if (Build.VERSION.SDK_INT >= 33) {
     Manifest.permission.READ_EXTERNAL_STORAGE
 }
 
-private data class Dest(val route: String, val label: String, val icon: ImageVector)
-
 private val DESTINATIONS = listOf(
-    Dest("home", "Home", Icons.Rounded.Home),
-    Dest("library", "Library", Icons.Rounded.LibraryMusic),
-    Dest("search", "Search", Icons.Rounded.Search),
+    DockDestination("home", "Home", Icons.Rounded.Home),
+    DockDestination("library", "Library", Icons.Rounded.LibraryMusic),
+    DockDestination("search", "Search", Icons.Rounded.Search),
 )
+
+private const val UI_PREFS = "zmusic_ui"
+private const val KEY_CAPTURE_ASKED = "capture_permission_asked"
+
+private fun Context.hasPermission(permission: String) =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
 @Composable
 fun ZmusicRoot(container: AppContainer) {
@@ -115,11 +100,10 @@ fun ZmusicRoot(container: AppContainer) {
         factory = viewModelFactory { initializer { LibraryViewModel(container.repository) } },
     )
 
-    fun hasAudioAccess() =
-        ContextCompat.checkSelfPermission(context, AUDIO_PERMISSION) == PackageManager.PERMISSION_GRANTED
-
-    var granted by remember { mutableStateOf(hasAudioAccess()) }
+    var granted by remember { mutableStateOf(context.hasPermission(AUDIO_PERMISSION)) }
     var denied by remember { mutableStateOf(false) }
+    // RECORD_AUDIO, used only for the output Visualizer. Optional: see AudioFrequencyTracker.
+    var captureAllowed by remember { mutableStateOf(context.hasPermission(Manifest.permission.RECORD_AUDIO)) }
 
     val audioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         granted = ok
@@ -127,74 +111,99 @@ fun ZmusicRoot(container: AppContainer) {
         if (ok) vm.refresh(force = true)
     }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val captureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        // Granted: the tracker re-attaches the Visualizer. Denied: it simply stays on its fallbacks.
+        captureAllowed = ok
+    }
 
     // Covers coming back from system settings and picking up newly added music.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        granted = hasAudioAccess()
+        granted = context.hasPermission(AUDIO_PERMISSION)
+        captureAllowed = context.hasPermission(Manifest.permission.RECORD_AUDIO)
         if (granted) vm.refresh()
     }
 
     LaunchedEffect(granted) {
-        if (granted && Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
+        if (granted && Build.VERSION.SDK_INT >= 33 && !context.hasPermission(Manifest.permission.POST_NOTIFICATIONS)) {
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    if (!granted) {
-        ZmusicTheme {
+    val playerState by container.player.state.collectAsStateWithLifecycle()
+
+    ZmusicTheme {
+        // The single tracker every live visual draws from.
+        val tracker = rememberAudioFrequencyTracker(playing = playerState.isPlaying, captureAllowed = captureAllowed)
+        CompositionLocalProvider(LocalAudioTracker provides tracker) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                PermissionScreen(
-                    denied = denied,
-                    onAllow = { audioLauncher.launch(AUDIO_PERMISSION) },
-                    onOpenSettings = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
-                        )
-                    },
-                )
+                if (!granted) {
+                    PermissionScreen(
+                        denied = denied,
+                        onAllow = { audioLauncher.launch(AUDIO_PERMISSION) },
+                        onOpenSettings = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+                            )
+                        },
+                    )
+                } else {
+                    MainShell(
+                        vm = vm,
+                        container = container,
+                        playerState = playerState,
+                        onFirstPlayerOpen = {
+                            // Asked once, in context, the first time Now Playing is opened. Never nagged
+                            // again: after that it is whatever the user chose (changeable in system settings).
+                            val prefs = context.getSharedPreferences(UI_PREFS, Context.MODE_PRIVATE)
+                            if (!captureAllowed && !prefs.getBoolean(KEY_CAPTURE_ASKED, false)) {
+                                prefs.edit().putBoolean(KEY_CAPTURE_ASKED, true).apply()
+                                captureLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
+                    )
+                }
             }
         }
-    } else {
-        SeededApp(vm, container)
     }
 }
 
 /**
- * Derives one muted seed colour from the current song's name and feeds it to the theme, so the
- * neutrals and the accent pick up a faint tint of whatever is playing. Also owns the single audio
- * reactor every live visual draws from.
+ * Layering, back to front:
+ *
+ * 1. Haze source: the aurora shader plus the current screen. Everything in here can be blurred.
+ * 2. Floating glass dock and mini player, blurring layer 1.
+ * 3. The Now Playing sheet, also blurring layer 1.
+ *
+ * Layers 2 and 3 are siblings of the source, never children of it, which is what Haze requires.
+ * One [Animatable] drives the whole expand transition: the sheet rises and un-tilts, the screen
+ * behind it sinks back in depth, and the dock drops away.
  */
-@Composable
-private fun SeededApp(vm: LibraryViewModel, container: AppContainer) {
-    val playerState by container.player.state.collectAsStateWithLifecycle()
-    val seed = remember(playerState.mediaId, playerState.title, playerState.artist) {
-        if (playerState.mediaId == null) DefaultSeed else seedFromText(playerState.title + playerState.artist)
-    }
-    val reactor = rememberAudioReactor(active = playerState.isPlaying)
-    ZmusicTheme(seed = seed) {
-        CompositionLocalProvider(LocalAudioReactor provides reactor) {
-            MainShell(vm, container, playerState)
-        }
-    }
-}
-
 @Composable
 private fun MainShell(
     vm: LibraryViewModel,
     container: AppContainer,
     playerState: PlayerUiState,
+    onFirstPlayerOpen: () -> Unit,
 ) {
     val player = container.player
     val tracks by vm.tracks.collectAsStateWithLifecycle()
     val recent by vm.recentlyAdded.collectAsStateWithLifecycle()
     val scanning by vm.scanning.collectAsStateWithLifecycle()
     val scanError by vm.scanError.collectAsStateWithLifecycle()
+    // One position ticker shared by the mini player and the sheet. Read only in draw lambdas.
+    val position = player.position.collectAsStateWithLifecycle(initialValue = 0L)
 
     val nav = rememberNavController()
+    val hazeState = remember { HazeState() }
+
     var showPlayer by rememberSaveable { mutableStateOf(false) }
+    val sheet = remember { Animatable(0f) }
+    val sheetOpen = showPlayer && playerState.hasMedia
+    LaunchedEffect(sheetOpen) {
+        if (sheetOpen) onFirstPlayerOpen()
+        sheet.animateTo(if (sheetOpen) 1f else 0f, SheetSpring)
+    }
+    val sheetInComposition by remember { derivedStateOf { sheet.value > 0.001f } }
 
     BackHandler(enabled = showPlayer) { showPlayer = false }
 
@@ -210,30 +219,47 @@ private fun MainShell(
     val currentRoute = backStack?.destination?.route
     val selectedIndex = DESTINATIONS.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
 
+    val bars = WindowInsets.systemBars.asPaddingValues()
+    val contentPadding = PaddingValues(
+        top = bars.calculateTopPadding(),
+        bottom = bars.calculateBottomPadding() + FloatingChrome.reservedHeight(playerState.hasMedia),
+    )
+
+    val actions = remember(player) {
+        NowPlayingActions(
+            onClose = { showPlayer = false },
+            onTogglePlay = player::togglePlayPause,
+            onNext = player::next,
+            onPrevious = player::previous,
+            onSeek = player::seekTo,
+            onToggleShuffle = player::toggleShuffle,
+            onCycleRepeat = player::cycleRepeat,
+            onSkipTo = player::skipTo,
+            onRemove = player::removeAt,
+        )
+    }
+
+    // Tab changes: the new screen comes forward out of depth on a spring, the old one falls back.
+    val tabSpring = spring<Float>(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+
     Box(Modifier.fillMaxSize()) {
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            bottomBar = {
-                Column {
-                    AnimatedVisibility(
-                        visible = playerState.hasMedia,
-                        enter = slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(320)),
-                        exit = slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(220)),
-                    ) {
-                        MiniPlayer(playerState, player) { showPlayer = true }
-                    }
-                    NavBar(selectedIndex) { go(DESTINATIONS[it].route) }
-                }
-            },
-        ) { padding ->
+        Box(Modifier.fillMaxSize().haze(hazeState)) {
+            AmbientAudioShaderBackground(Modifier.fillMaxSize())
             NavHost(
                 navController = nav,
                 startDestination = "home",
-                modifier = Modifier.padding(padding),
-                enterTransition = { fadeIn(tween(260)) + slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it / 40 } },
-                exitTransition = { fadeOut(tween(120)) },
-                popEnterTransition = { fadeIn(tween(260)) + slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it / 40 } },
-                popExitTransition = { fadeOut(tween(120)) },
+                // The transform sits on the content, not on the haze node, so blur stays registered.
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val p = sheet.value.coerceIn(0f, 1f)
+                    val s = 1f - 0.07f * p
+                    scaleX = s
+                    scaleY = s
+                    alpha = 1f - 0.55f * p
+                },
+                enterTransition = { fadeIn(tween(220, delayMillis = 60)) + scaleIn(tabSpring, initialScale = 0.955f) },
+                exitTransition = { fadeOut(tween(110)) + scaleOut(tween(160), targetScale = 1.03f) },
+                popEnterTransition = { fadeIn(tween(220, delayMillis = 60)) + scaleIn(tabSpring, initialScale = 0.955f) },
+                popExitTransition = { fadeOut(tween(110)) + scaleOut(tween(160), targetScale = 1.03f) },
             ) {
                 composable("home") {
                     HomeScreen(
@@ -242,6 +268,7 @@ private fun MainShell(
                         playerState = playerState,
                         player = player,
                         scanning = scanning,
+                        contentPadding = contentPadding,
                         onOpenLibrary = { go("library") },
                         onRefresh = { vm.refresh(force = true) },
                     )
@@ -253,99 +280,40 @@ private fun MainShell(
                         player = player,
                         scanning = scanning,
                         scanError = scanError,
+                        contentPadding = contentPadding,
                         onRefresh = { vm.refresh(force = true) },
                     )
                 }
-                composable("search") { SearchScreen(vm, playerState, player) }
+                composable("search") { SearchScreen(vm, playerState, player, contentPadding) }
             }
         }
 
-        AnimatedVisibility(
-            visible = showPlayer && playerState.hasMedia,
-            enter = slideInVertically(tween(380, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(380)),
-            exit = slideOutVertically(tween(280, easing = FastOutSlowInEasing)) { it } + fadeOut(tween(280)),
-        ) {
-            NowPlayingScreen(player = player, onClose = { showPlayer = false })
-        }
-    }
-}
-
-/**
- * Bottom bar with no container: the page colour, a hairline on top, and one 28dp line that
- * slides between tabs on a critically damped spring. Selected icon lifts a few dp.
- */
-@Composable
-private fun NavBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
-    val primary = MaterialTheme.colorScheme.primary
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
-            .navigationBarsPadding(),
-    ) {
-        Box(Modifier.fillMaxWidth().height(0.5.dp).background(AppTheme.extended.hairline))
-        BoxWithConstraints(Modifier.fillMaxWidth().height(64.dp)) {
-            val itemWidth = maxWidth / DESTINATIONS.size
-            val density = LocalDensity.current
-            val position by animateFloatAsState(
-                targetValue = selectedIndex.toFloat(),
-                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow),
-                label = "navIndicator",
-            )
-            Row(Modifier.fillMaxSize()) {
-                DESTINATIONS.forEachIndexed { i, d ->
-                    NavItem(d, isSelected = i == selectedIndex, modifier = Modifier.weight(1f)) { onSelect(i) }
-                }
-            }
-            Box(
-                Modifier
-                    .offset {
-                        val x = with(density) { (itemWidth * position + (itemWidth - 28.dp) / 2).roundToPx() }
-                        IntOffset(x, 0)
-                    }
-                    .width(28.dp)
-                    .height(2.dp)
-                    .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
-                    .background(primary),
-            )
-        }
-    }
-}
-
-@Composable
-private fun NavItem(d: Dest, isSelected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val tint by animateColorAsState(
-        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
-        animationSpec = tween(220),
-        label = "navTint",
-    )
-    val lift by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
-        label = "navLift",
-    )
-    Column(
-        modifier = modifier
-            .fillMaxHeight()
-            .pressClick(onClick)
-            .semantics {
-                role = Role.Tab
-                this.selected = isSelected
+        FloatingGlassNavAndMiniPlayer(
+            hazeState = hazeState,
+            destinations = DESTINATIONS,
+            selectedIndex = selectedIndex,
+            onSelect = { go(DESTINATIONS[it].route) },
+            playerState = playerState,
+            position = position,
+            onTogglePlay = player::togglePlayPause,
+            onNext = player::next,
+            onOpenPlayer = { showPlayer = true },
+            modifier = Modifier.align(Alignment.BottomCenter).graphicsLayer {
+                // Drops away as the sheet takes over, and comes back as it leaves.
+                val p = sheet.value.coerceIn(0f, 1f)
+                alpha = (1f - p * 2.2f).coerceIn(0f, 1f)
+                translationY = 36.dp.toPx() * p
             },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = d.icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(24.dp).graphicsLayer { translationY = -3.dp.toPx() * lift },
         )
-        Text(
-            text = d.label.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            color = tint,
-            modifier = Modifier.padding(top = 3.dp),
-        )
+
+        if (sheetInComposition) {
+            Expanded3DNowPlayingSheet(
+                state = playerState,
+                position = position,
+                progress = sheet,
+                hazeState = hazeState,
+                actions = actions,
+            )
+        }
     }
 }

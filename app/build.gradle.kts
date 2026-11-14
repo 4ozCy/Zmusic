@@ -87,5 +87,8 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    // Live backdrop blur for the floating glass chrome.
+    implementation(libs.haze)
+
     testImplementation(libs.junit)
 }

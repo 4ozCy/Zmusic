@@ -1,8 +1,5 @@
 package com.zmusic.app.ui.library
 
-import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -27,32 +25,36 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
-import com.zmusic.app.ui.components.AmbientGlow
-import com.zmusic.app.ui.components.Eyebrow
-import com.zmusic.app.ui.components.HairlineDivider
+import com.zmusic.app.ui.components.EqBars
+import com.zmusic.app.ui.components.GlassPill
 import com.zmusic.app.ui.components.RescanButton
 import com.zmusic.app.ui.components.Reveal
 import com.zmusic.app.ui.components.ScreenHeader
 import com.zmusic.app.ui.components.TextAction
 import com.zmusic.app.ui.components.TrackRow
-import com.zmusic.app.ui.components.pressClick
+import com.zmusic.app.ui.components.frostedGlassCard
+import com.zmusic.app.ui.components.tilt3DOnPress
+import com.zmusic.app.ui.components.topFade
 import com.zmusic.app.ui.theme.AppTheme
-import com.zmusic.app.ui.theme.NumberStyle
-import com.zmusic.app.ui.theme.TimeStyle
+import com.zmusic.app.ui.theme.IndexStyle
 import java.util.Calendar
 import kotlin.random.Random
 
+/**
+ * Home. Editorial and airy: the greeting and the lists are bare type sitting directly on the
+ * aurora. Glass appears only where something is meant to be picked up: the three action pills and
+ * the "Recently added" tiles.
+ *
+ * @param contentPadding status bar at the top, floating dock and mini player at the bottom.
+ */
 @Composable
 fun HomeScreen(
     tracks: List<TrackEntity>?,
@@ -60,61 +62,65 @@ fun HomeScreen(
     playerState: PlayerUiState,
     player: PlayerController,
     scanning: Boolean,
+    contentPadding: PaddingValues,
     onOpenLibrary: () -> Unit,
     onRefresh: () -> Unit,
 ) {
     val mix = if (tracks == null) emptyList() else daily(tracks)
 
-    Box(Modifier.fillMaxSize()) {
-        // Fixed behind the list: the greeting sits in it, the rest scrolls over the page colour.
-        AmbientGlow(Modifier.fillMaxWidth().height(300.dp))
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 32.dp),
-        ) {
-            item {
-                val (eyebrow, headline) = remember { dayPart() }
-                Reveal(0) {
-                    ScreenHeader(eyebrow, headline) { RescanButton(scanning, onRefresh) }
-                }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().topFade(contentPadding.calculateTopPadding()),
+        contentPadding = contentPadding,
+    ) {
+        item(key = "greeting") {
+            val (eyebrow, headline) = remember { dayPart() }
+            Reveal(0) {
+                ScreenHeader(eyebrow, headline) { RescanButton(scanning, onRefresh) }
             }
+        }
 
-            when {
-                tracks == null -> item { LoadingIndicator(Modifier.fillMaxWidth().padding(48.dp)) }
+        when {
+            tracks == null -> item(key = "loading") { LoadingIndicator(Modifier.fillMaxWidth().padding(48.dp)) }
 
-                tracks.isEmpty() -> item { EmptyLibrary(scanning, onRefresh) }
+            tracks.isEmpty() -> item(key = "empty") { EmptyLibrary(scanning, onRefresh) }
 
-                else -> {
-                    item { Reveal(100) { LibrarySummary(tracks, player, onOpenLibrary) } }
+            else -> {
+                item(key = "summary") { Reveal(90) { LibrarySummary(tracks, player, onOpenLibrary) } }
 
-                    if (recent.isNotEmpty()) {
-                        item {
-                            Reveal(200) {
-                                Column {
-                                    SectionTitle("Recently added", Modifier.padding(top = 36.dp, bottom = 16.dp))
-                                    LazyRow(contentPadding = PaddingValues(horizontal = 24.dp)) {
-                                        itemsIndexed(recent, key = { _, t -> t.mediaStoreId }) { i, t ->
-                                            RecentColumn(i + 1, t) {
-                                                player.setShuffle(false)
-                                                player.playQueue(recent, i)
-                                            }
+                if (recent.isNotEmpty()) {
+                    item(key = "recent") {
+                        Reveal(180) {
+                            Column {
+                                SectionTitle("Recently added", Modifier.padding(top = 40.dp, bottom = 16.dp))
+                                LazyRow(
+                                    contentPadding = PaddingValues(horizontal = 24.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    itemsIndexed(recent, key = { _, t -> t.mediaStoreId }) { i, t ->
+                                        RecentTile(
+                                            position = i + 1,
+                                            track = t,
+                                            isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
+                                        ) {
+                                            player.setShuffle(false)
+                                            player.playQueue(recent, i)
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
 
-                    item { Reveal(300) { TodayMixHeader(mix, player) } }
-                    itemsIndexed(mix.take(6), key = { _, t -> "mix-${t.mediaStoreId}" }) { i, t ->
-                        TrackRow(
-                            track = t,
-                            isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
-                            number = i + 1,
-                        ) {
-                            player.setShuffle(false)
-                            player.playQueue(mix, i)
-                        }
+                item(key = "mix-header") { Reveal(270) { TodayMixHeader(mix, player) } }
+                itemsIndexed(mix.take(6), key = { _, t -> "mix-${t.mediaStoreId}" }) { i, t ->
+                    TrackRow(
+                        track = t,
+                        isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
+                        number = i + 1,
+                    ) {
+                        player.setShuffle(false)
+                        player.playQueue(mix, i)
                     }
                 }
             }
@@ -149,87 +155,78 @@ private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** No card: a big count, one line of detail, and text actions separated by a hairline. */
+/** The library counter as one quiet line of type, then the three action pills. */
 @Composable
 private fun LibrarySummary(tracks: List<TrackEntity>, player: PlayerController, onOpenLibrary: () -> Unit) {
     val albums = remember(tracks) { tracks.map { it.albumId }.distinct().size }
     val artists = remember(tracks) { tracks.map { it.artist }.distinct().size }
-    val count by animateIntAsState(tracks.size, tween(900), label = "songCount")
+    val line = remember(tracks.size, albums, artists) {
+        "${plural(tracks.size, "song")}  •  ${plural(albums, "album")}  •  ${plural(artists, "artist")}"
+    }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 24.dp)) {
-        HairlineDivider()
-        Spacer(Modifier.height(20.dp))
-        Eyebrow("Your library")
-        Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 4.dp)) {
-            Text(count.toString(), style = NumberStyle)
-            Text(
-                if (tracks.size == 1) "song" else "songs",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 10.dp, bottom = 14.dp),
-            )
-        }
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
         Text(
-            "$albums albums \u00B7 $artists artists",
-            style = MaterialTheme.typography.bodyMedium,
+            text = line,
+            style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 24.dp),
         )
-        Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextAction("Play all", Icons.Rounded.PlayArrow, accent = true) {
-                player.setShuffle(false)
-                player.playQueue(tracks, 0)
+        Spacer(Modifier.height(22.dp))
+        // A LazyRow so the pills scroll rather than squash on narrow screens or large font scales.
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                GlassPill("Play all", Icons.Rounded.PlayArrow, prominent = true) {
+                    player.setShuffle(false)
+                    player.playQueue(tracks, 0)
+                }
             }
-            Divider()
-            TextAction("Shuffle", Icons.Rounded.Shuffle) {
-                player.setShuffle(true)
-                player.playQueue(tracks, Random.nextInt(tracks.size))
+            item {
+                GlassPill("Shuffle", Icons.Rounded.Shuffle) {
+                    player.setShuffle(true)
+                    player.playQueue(tracks, Random.nextInt(tracks.size))
+                }
             }
-            Divider()
-            TextAction("Browse", Icons.Rounded.LibraryMusic, onClick = onOpenLibrary)
+            item { GlassPill("Browse", Icons.Rounded.LibraryMusic, onClick = onOpenLibrary) }
         }
-        Spacer(Modifier.height(8.dp))
-        HairlineDivider()
     }
 }
 
-@Composable
-private fun Divider() {
-    Box(
-        Modifier
-            .padding(horizontal = 16.dp)
-            .width(0.5.dp)
-            .height(20.dp)
-            .background(AppTheme.extended.hairline),
-    )
-}
+private fun plural(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
 
 /**
- * One recently added song as a narrow type column behind a hairline rule: position, title,
- * artist. A row of these reads like index tabs and stays distinct from the song lists.
+ * One recently added song as a floating glass tile: index numeral, title, artist. No picture.
+ * Pressing tilts the tile in 3D toward the finger; the song that is playing shows live bars in
+ * the corner and an amber numeral.
  */
 @Composable
-private fun RecentColumn(position: Int, track: TrackEntity, onClick: () -> Unit) {
-    val hairline = AppTheme.extended.hairline
+private fun RecentTile(position: Int, track: TrackEntity, isCurrent: Boolean, onClick: () -> Unit) {
+    val amber = MaterialTheme.colorScheme.primary
     Column(
         Modifier
-            .width(156.dp)
-            .pressClick(onClick)
-            .drawBehind { drawRect(hairline, size = Size(0.5.dp.toPx(), size.height)) }
-            .padding(start = 14.dp, end = 18.dp, top = 2.dp, bottom = 6.dp),
+            .width(164.dp)
+            .height(152.dp)
+            .tilt3DOnPress(onClickLabel = "Play ${track.title}", onClick = onClick)
+            .frostedGlassCard(RoundedCornerShape(26.dp), surfaceAlpha = 0.12f)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
     ) {
-        Text(
-            text = position.toString().padStart(2, '0'),
-            style = TimeStyle,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = position.toString().padStart(2, '0'),
+                style = IndexStyle,
+                color = if (isCurrent) amber else AppTheme.extended.faint,
+                modifier = Modifier.weight(1f),
+            )
+            if (isCurrent) EqBars(color = amber, modifier = Modifier.size(width = 16.dp, height = 14.dp))
+        }
+        Spacer(Modifier.weight(1f))
         Text(
             text = track.title,
             style = MaterialTheme.typography.titleMedium,
-            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 10.dp),
         )
         Text(
             text = track.artist,
@@ -245,7 +242,11 @@ private fun RecentColumn(position: Int, track: TrackEntity, onClick: () -> Unit)
 @Composable
 fun LoadingIndicator(modifier: Modifier = Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+        CircularProgressIndicator(
+            modifier = Modifier.size(28.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            strokeWidth = 2.dp,
+        )
     }
 }
 
@@ -261,7 +262,7 @@ fun EmptyLibrary(scanning: Boolean, onRefresh: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextAction(if (scanning) "Scanning…" else "Scan again", Icons.Rounded.Refresh, accent = true) {
+        GlassPill(if (scanning) "Scanning…" else "Scan again", Icons.Rounded.Refresh, Modifier.padding(top = 8.dp)) {
             if (!scanning) onRefresh()
         }
     }

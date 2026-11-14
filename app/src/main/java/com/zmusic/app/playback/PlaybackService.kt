@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -50,6 +51,16 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        // The Visualizer in AudioFrequencyTracker attaches to this session.
+        AudioSession.id.value = player.audioSessionId
+        player.addListener(
+            object : Player.Listener {
+                override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                    AudioSession.id.value = audioSessionId
+                }
+            },
+        )
+
         val openApp = PendingIntent.getActivity(
             this,
             0,
@@ -74,6 +85,7 @@ class PlaybackService : MediaSessionService() {
             release()
         }
         session = null
+        AudioSession.id.value = 0
         super.onDestroy()
     }
 }

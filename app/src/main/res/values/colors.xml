@@ -1,5 +1,5 @@
 <resources>
-    <color name="ic_launcher_background">#FF0C0A09</color>
-    <!-- Matches the Compose background for the default seed, so launch does not flash. -->
-    <color name="zmusic_window_bg">#FFF6F1EB</color>
+    <color name="ic_launcher_background">#FF070709</color>
+    <!-- Matches the Compose obsidian base so launch does not flash. The app is dark-only. -->
+    <color name="zmusic_window_bg">#FF070709</color>
 </resources>

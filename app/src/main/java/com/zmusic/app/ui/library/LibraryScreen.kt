@@ -1,32 +1,70 @@
 package com.zmusic.app.ui.library
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
+import com.zmusic.app.ui.components.HairlineDivider
 import com.zmusic.app.ui.components.RescanButton
 import com.zmusic.app.ui.components.ScreenHeader
 import com.zmusic.app.ui.components.TrackRow
+import com.zmusic.app.ui.components.frostedGlassCard
+import com.zmusic.app.ui.components.topFade
 import com.zmusic.app.ui.theme.AppTheme
 import com.zmusic.app.ui.theme.TimeStyle
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalFoundationApi::class)
+/** One letter of the index: where its header sits in the list, and its songs with their index in the full library. */
+@Immutable
+private data class LetterGroup(
+    val letter: String,
+    val headerIndex: Int,
+    val rows: List<IndexedValue<TrackEntity>>,
+)
+
+/**
+ * Library. A clean alphabetical index: a large letter with a glass count badge opens each group,
+ * rows are bare type, and a slim glass rail on the right edge jumps between letters (tap or drag).
+ *
+ * @param contentPadding status bar at the top, floating dock and mini player at the bottom.
+ */
 @Composable
 fun LibraryScreen(
     tracks: List<TrackEntity>?,
@@ -34,74 +72,171 @@ fun LibraryScreen(
     player: PlayerController,
     scanning: Boolean,
     scanError: String?,
+    contentPadding: PaddingValues,
     onRefresh: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        ScreenHeader(
-            eyebrow = when {
-                tracks == null -> "Loading"
-                tracks.size == 1 -> "1 song"
-                else -> "${tracks.size} songs"
-            },
-            title = "Library",
-        ) { RescanButton(scanning, onRefresh) }
+    // Tracks arrive sorted by title, so letter groups are contiguous. Each song keeps its index in
+    // the full list so tapping plays from the right place. List item 0 is the screen header.
+    val groups = remember(tracks) {
+        var next = 1
+        tracks.orEmpty().withIndex()
+            .groupBy { iv -> iv.value.title.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString() ?: "#" }
+            .map { (letter, rows) ->
+                LetterGroup(letter, next, rows).also { next += rows.size + 1 }
+            }
+    }
+    val listState = rememberLazyListState()
+    val showRail = groups.size >= 3
 
-        if (scanError != null) {
-            Text(
-                text = "Scan problem: $scanError",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-            )
-        }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().topFade(contentPadding.calculateTopPadding()),
+            contentPadding = contentPadding,
+        ) {
+            item(key = "header") {
+                Column {
+                    ScreenHeader(
+                        eyebrow = when {
+                            tracks == null -> "Loading"
+                            tracks.size == 1 -> "1 song"
+                            else -> "${tracks.size} songs"
+                        },
+                        title = "Library",
+                    ) { RescanButton(scanning, onRefresh) }
 
-        when {
-            tracks == null -> LoadingIndicator(Modifier.fillMaxSize())
-
-            tracks.isEmpty() -> EmptyLibrary(scanning, onRefresh)
-
-            else -> {
-                // Tracks arrive sorted by title, so letter groups are contiguous. Each song keeps its
-                // index in the full list so tapping plays from the right place.
-                val groups = remember(tracks) {
-                    tracks.withIndex().groupBy { iv ->
-                        iv.value.title.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString() ?: "#"
+                    if (scanError != null) {
+                        Text(
+                            text = "Scan problem: $scanError",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                        )
                     }
                 }
-                LazyColumn(Modifier.fillMaxSize()) {
-                    groups.forEach { (letter, rows) ->
-                        stickyHeader(key = "h-$letter") {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.background)
-                                    .padding(start = 24.dp, top = 14.dp, bottom = 4.dp),
-                                verticalAlignment = Alignment.Bottom,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    letter,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    text = rows.size.toString(),
-                                    style = TimeStyle,
-                                    color = AppTheme.extended.faint,
-                                    modifier = Modifier.padding(bottom = 5.dp),
-                                )
-                            }
-                        }
-                        items(rows, key = { it.value.mediaStoreId }) { iv ->
-                            TrackRow(
-                                track = iv.value,
-                                isCurrent = iv.value.mediaStoreId.toString() == playerState.mediaId,
-                            ) {
-                                player.setShuffle(false)
-                                player.playQueue(tracks, iv.index)
-                            }
+            }
+
+            when {
+                tracks == null -> item(key = "loading") { LoadingIndicator(Modifier.fillMaxWidth().padding(48.dp)) }
+
+                tracks.isEmpty() -> item(key = "empty") { EmptyLibrary(scanning, onRefresh) }
+
+                else -> groups.forEach { group ->
+                    item(key = "h-${group.letter}", contentType = "letter") {
+                        LetterHeader(group.letter, group.rows.size, railInset = showRail)
+                    }
+                    items(group.rows, key = { it.value.mediaStoreId }, contentType = { "track" }) { iv ->
+                        TrackRow(
+                            track = iv.value,
+                            isCurrent = iv.value.mediaStoreId.toString() == playerState.mediaId,
+                            modifier = if (showRail) Modifier.padding(end = 22.dp) else Modifier,
+                        ) {
+                            player.setShuffle(false)
+                            player.playQueue(tracks, iv.index)
                         }
                     }
+                }
+            }
+        }
+
+        if (showRail) {
+            IndexRail(
+                groups = groups,
+                listState = listState,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(
+                        top = contentPadding.calculateTopPadding() + 120.dp,
+                        bottom = contentPadding.calculateBottomPadding() + 8.dp,
+                        end = 6.dp,
+                    ),
+            )
+        }
+    }
+}
+
+/** Big letter, a glass badge with the number of songs under it, and a hairline running out to the edge. */
+@Composable
+private fun LetterHeader(letter: String, count: Int, railInset: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = if (railInset) 46.dp else 24.dp, top = 22.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(letter, style = MaterialTheme.typography.headlineMedium)
+        Text(
+            text = count.toString(),
+            style = TimeStyle,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .frostedGlassCard(CircleShape, surfaceAlpha = 0.09f)
+                .padding(horizontal = 9.dp, vertical = 3.dp),
+        )
+        HairlineDivider(Modifier.weight(1f))
+    }
+}
+
+/**
+ * Letter rail. One touch anywhere on it jumps the list; dragging scrubs through the letters with
+ * a haptic tick on each change. The letter of the group at the top of the list is lit in amber.
+ * It is a touch shortcut only: screen readers already reach every row by scrolling, so it is
+ * hidden from accessibility rather than adding twenty unlabeled stops.
+ */
+@Composable
+private fun IndexRail(groups: List<LetterGroup>, listState: LazyListState, modifier: Modifier = Modifier) {
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val current by rememberUpdatedState(groups)
+    val active by remember {
+        derivedStateOf {
+            val first = listState.firstVisibleItemIndex
+            current.indexOfLast { it.headerIndex <= first }.coerceAtLeast(0)
+        }
+    }
+
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val railHeight = min(maxHeight, 22.dp * groups.size + 16.dp)
+        Column(
+            modifier = Modifier
+                .width(28.dp)
+                .height(railHeight)
+                .frostedGlassCard(CircleShape, surfaceAlpha = 0.09f)
+                .padding(vertical = 8.dp)
+                .clearAndSetSemantics { }
+                .pointerInput(Unit) {
+                    var last = -1
+                    fun jump(y: Float) {
+                        val list = current
+                        if (list.isEmpty()) return
+                        val i = (y / size.height * list.size).toInt().coerceIn(0, list.lastIndex)
+                        if (i != last) {
+                            last = i
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            scope.launch { listState.scrollToItem(list[i].headerIndex) }
+                        }
+                    }
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        last = -1
+                        jump(down.position.y)
+                        drag(down.id) { change ->
+                            change.consume()
+                            jump(change.position.y)
+                        }
+                    }
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            groups.forEachIndexed { i, group ->
+                val color by animateColorAsState(
+                    targetValue = if (i == active) MaterialTheme.colorScheme.primary else AppTheme.extended.faint,
+                    animationSpec = tween(160),
+                    label = "railLetter",
+                )
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(group.letter, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
                 }
             }
         }

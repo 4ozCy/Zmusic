@@ -8,19 +8,25 @@ Offline-first Android music player. Kotlin, Jetpack Compose (Material 3), Media3
 
 ## Design
 
-Calm, typographic and cover-free. Neutrals are `#0B0B0D` (dark) and `#F6F6F4` (light), nudged by one muted seed colour derived from the current song's name (chroma capped so contrast always holds). It follows the system light/dark setting. The identity of the app is the live audio visual and the type, not artwork.
+Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#070709`) is lit from behind by slow aurora light that follows the music; a few panes of smoked frosted glass float in front of it. The app is dark-only on purpose.
 
-- No album covers, no cards, borders or pill backgrounds around controls. Structure comes from spacing and 0.5dp hairlines at 10% alpha.
-- Type is Manrope; timestamps, counts and row numbers are JetBrains Mono.
-- Motion is critically damped (no bounce). Press detents are 0.94 scale with haptics on transport controls.
-- One signature visual, the radial spectrum ring: hero on Now Playing, 44dp in the mini player, idle brand mark on the permission screen. One shared frame loop feeds every live visual.
-- Now Playing: ring, title block directly above the precision scrubber (2dp paused, 4dp playing, thumb + time pill + haptic ticks while dragging), play button that morphs circle to 16dp squircle. Skipping slides the title in the direction of travel. The sheet follows your finger when you swipe it down.
-- The queue opens in place of the ring under a compact header.
+- Palette: obsidian `#070709`, smoked glass `#14151A`, alabaster type `#F5F5F7`, silver secondary `#8E8E93`. Amber is the one accent (current song, primary action). Indigo only ever appears as light.
+- No album covers and no lyrics anywhere. Type is Manrope; timestamps, counts and index numerals are JetBrains Mono.
+- Glass is reserved for things that float: the navigation dock, the mini player, the action pills, the "Recently added" tiles and the Now Playing sheet. List rows are bare type.
+- The dock, mini player and sheet blur what is behind them live ([Haze](https://github.com/chrisbanes/haze), `RenderEffect`, Android 12L+; older versions get near-solid smoked glass).
+- Motion is spring-driven. Tiles tilt in 3D under your finger, the dock lozenge slides between tabs, the sheet rises while un-tilting in perspective.
+- Now Playing shows a procedural 3D gyroscope instead of artwork: three gimballed metal hoops and a spectrum halo, built from real vertices with perspective projection, per-face lighting and depth sorting on a Compose `Canvas`.
 - Honours the system "remove animations" setting (decorative motion stops).
 
-### Audio visuals are real
+### Audio-reactive visuals
 
-`LevelAudioProcessor` sits in ExoPlayer's audio pipeline and measures a 12-band spectrum from the actual PCM samples (no microphone permission). Limits: 16-bit PCM only, and the visuals can lead the sound by the audio buffer (tens of ms, up to a couple of hundred depending on the device).
+`AudioFrequencyTracker` publishes smoothed `bass`, `mid` and `treble` (`StateFlow<Float>`, 0..1). Each frame it picks the best available source:
+
+1. `android.media.audiofx.Visualizer` on the player's own audio session, if `RECORD_AUDIO` was granted. The app asks once, the first time Now Playing opens. Nothing is recorded.
+2. `LevelAudioProcessor`, which measures a 12-band spectrum from ExoPlayer's PCM buffers. No permission needed, so denying the prompt costs nothing but a little sync accuracy (16-bit PCM only; it can lead the sound by the audio buffer).
+3. A slow synthetic "breathing" wave while paused, so the UI never looks frozen.
+
+The backdrop is an AGSL `RuntimeShader` on Android 13+ and an equivalent Canvas gradient version below that.
 
 ## What works
 
@@ -28,13 +34,13 @@ Calm, typographic and cover-free. Neutrals are `#0B0B0D` (dark) and `#F6F6F4` (l
 - Permission flow that explains first
 - Single ExoPlayer in `PlaybackService`: background playback, notification and lock-screen controls, audio focus, becoming-noisy handling
 - Queue (view, jump, remove), shuffle, repeat off/all/one
-- Home (daily mix, recently added), Library (A-Z), Search (debounced, top-artist links), mini player, Now Playing
+- Home (daily mix, recently added), Library (A-Z with a jump rail), Search (debounced, top-artist links), mini player, Now Playing
 - Large libraries queue a window around the tapped song (100 before, 300 after)
 
 ## Not built yet
 
 - Lyrics and album art are intentionally not part of the app.
-- Playlists, favorites, history, sort/filter, drag-reorder queue, queue restore after process death, equalizer/effects, sleep timer, playback speed, backup/restore, settings, manual theme switch.
+- Playlists, favorites, history, sort/filter, drag-reorder queue, queue restore after process death, equalizer/effects, sleep timer, playback speed, backup/restore, settings, light theme.
 
 ## Releases and signing
 

@@ -22,11 +22,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +39,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,12 +51,15 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.ui.theme.AppTheme
 
 /*
  * Motion rules for this app:
- * - Critically damped physics (damping 0.85 to 1.0). Nothing overshoots or wobbles.
+ * - Everything you touch moves on a spring. Glass that floats (tiles, the dock lozenge, the play
+ *   button, the sheet) is slightly underdamped so it lands with a small, physical overshoot.
+ *   Plain text and list content stays well damped; type should not wobble.
  * - Every animation says something: press = physical detent, skip = direction of travel,
  *   visuals = the audio that is actually playing.
  * - Animated values are read inside graphicsLayer/draw lambdas so frames redraw, not recompose.
@@ -67,12 +75,12 @@ fun rememberReduceMotion(): Boolean {
 }
 
 /** Light press feedback for general tappables. */
-fun Modifier.pressClick(onClick: () -> Unit): Modifier = composed {
+fun Modifier.pressClick(onClickLabel: String? = null, onClick: () -> Unit): Modifier = composed {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium),
         label = "press",
     )
     this
@@ -80,7 +88,13 @@ fun Modifier.pressClick(onClick: () -> Unit): Modifier = composed {
             scaleX = scale
             scaleY = scale
         }
-        .clickable(interactionSource = source, indication = null, role = Role.Button, onClick = onClick)
+        .clickable(
+            interactionSource = source,
+            indication = null,
+            onClickLabel = onClickLabel,
+            role = Role.Button,
+            onClick = onClick,
+        )
 }
 
 /** Transport controls: a firm 0.94 detent plus a long-press haptic the moment it is pressed. */
@@ -92,8 +106,8 @@ fun Modifier.machinedClick(onClick: () -> Unit): Modifier = composed {
         if (pressed) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.94f else 1f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMedium),
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium),
         label = "detent",
     )
     this
@@ -144,7 +158,7 @@ fun ScreenHeader(
     action: @Composable () -> Unit = {},
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 28.dp, bottom = 12.dp),
+        modifier = modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, top = 28.dp, bottom = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Column(Modifier.weight(1f)) {
@@ -155,18 +169,30 @@ fun ScreenHeader(
     }
 }
 
-/** Rescan the library. Turns into a small spinner while a scan is running. */
+/** Rescan the library. A small glass button that turns into a spinner while a scan is running. */
 @Composable
 fun RescanButton(scanning: Boolean, onRefresh: () -> Unit) {
-    IconButton(onClick = onRefresh, enabled = !scanning) {
+    Box(
+        modifier = Modifier
+            .pressClick(onClickLabel = "Rescan library") { if (!scanning) onRefresh() }
+            .size(48.dp)
+            .padding(3.dp)
+            .frostedGlassCard(CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
         Crossfade(targetState = scanning, label = "rescan") { busy ->
             if (busy) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    strokeWidth = 2.dp,
+                )
             } else {
                 Icon(
                     Icons.Rounded.Refresh,
                     contentDescription = "Rescan library",
                     tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -184,7 +210,7 @@ fun TextAction(
 ) {
     val color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
     Row(
-        modifier = modifier.heightIn(min = 48.dp).pressClick(onClick),
+        modifier = modifier.heightIn(min = 48.dp).pressClick(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
@@ -196,3 +222,24 @@ fun TextAction(
         )
     }
 }
+
+/**
+ * Dissolves scrolling content as it passes under the status bar instead of letting it collide
+ * with the clock. [height] is the status bar inset; the fade finishes a little below it.
+ * One offscreen layer for the whole list, masked with a cached gradient.
+ */
+fun Modifier.topFade(height: Dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithCache {
+        val end = height.toPx() + 14.dp.toPx()
+        val mask = Brush.verticalGradient(
+            0f to Color.Transparent,
+            1f to Color.Black,
+            startY = end * 0.40f,
+            endY = end,
+        )
+        onDrawWithContent {
+            drawContent()
+            drawRect(mask, size = Size(size.width, end), blendMode = BlendMode.DstIn)
+        }
+    }

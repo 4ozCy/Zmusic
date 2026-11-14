@@ -3,39 +3,35 @@ package com.zmusic.app.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.zmusic.app.ui.components.AmbientGlow
+import com.zmusic.app.ui.components.AmbientAudioShaderBackground
 import com.zmusic.app.ui.components.Eyebrow
-import com.zmusic.app.ui.components.RadialSpectrum
+import com.zmusic.app.ui.components.GlassPill
+import com.zmusic.app.ui.components.KineticGyroscope
 import com.zmusic.app.ui.components.Reveal
-import com.zmusic.app.ui.components.TextAction
 
 @Composable
 fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
-        AmbientGlow(Modifier.fillMaxWidth().fillMaxHeight(0.6f))
+        AmbientAudioShaderBackground(Modifier.fillMaxSize())
         Column(
             modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp, vertical = 40.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            // The idle ring doubles as the brand mark; it is the same visual that comes alive on playback.
-            Reveal(0) { RadialSpectrum(Modifier.padding(bottom = 32.dp).size(88.dp)) }
+            // The idle gyroscope doubles as the brand mark; it is the same sculpture that comes alive on playback.
+            Reveal(0) { KineticGyroscope(Modifier.padding(bottom = 28.dp).size(104.dp), halo = false, segments = 36) }
             Reveal(80) {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Eyebrow("Zmusic", color = MaterialTheme.colorScheme.primary)
@@ -52,16 +48,15 @@ fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () ->
                 }
             }
             Reveal(160) {
-                Column(Modifier.padding(top = 28.dp), horizontalAlignment = Alignment.Start) {
-                    // The one filled control on this screen: it is the single thing to do.
-                    Button(
-                        onClick = onAllow,
-                        shape = MaterialTheme.shapes.medium,
-                        contentPadding = PaddingValues(horizontal = 24.dp),
-                        modifier = Modifier.heightIn(min = 52.dp),
-                    ) { Text("Allow access to music") }
+                Column(
+                    Modifier.padding(top = 28.dp),
+                    horizontalAlignment = Alignment.Start,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    // The one solid control on this screen: it is the single thing to do.
+                    GlassPill("Allow access to music", Icons.Rounded.LibraryMusic, prominent = true, onClick = onAllow)
                     if (denied) {
-                        TextAction("Open app settings", Icons.Rounded.Settings, Modifier.padding(top = 8.dp), onClick = onOpenSettings)
+                        GlassPill("Open app settings", Icons.Rounded.Settings, onClick = onOpenSettings)
                     }
                 }
             }
