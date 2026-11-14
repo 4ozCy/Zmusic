@@ -81,7 +81,13 @@ fun KineticGyroscope(
             // Blended shading needs per-corner colours, which the platform only draws on a
             // hardware canvas from Android 10. Older versions get one flat colour per face.
             val blended = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-            val meshPaint = Paint()
+            // White, so that a platform which multiplies the corner colours by the paint's
+            // colour leaves them as they are.
+            val meshPaint = Paint().apply { color = android.graphics.Color.WHITE }
+            // One face at a time is copied here and drawn from offset 0: the platform crashes
+            // on a non-zero vertex offset when no texture coordinates are passed.
+            val faceXY = FloatArray(12)
+            val faceColor = IntArray(6)
             onDrawBehind {
                 tracker.frame.longValue // redraw every frame without recomposing
                 val t = tracker.seconds
@@ -136,11 +142,13 @@ fun KineticGyroscope(
 
                         else -> {
                             if (blended) {
+                                System.arraycopy(model.mesh, i * 12, faceXY, 0, 12)
+                                System.arraycopy(model.meshColor, i * 6, faceColor, 0, 6)
                                 native.drawVertices(
                                     Canvas.VertexMode.TRIANGLES,
-                                    12, model.mesh, i * 12,
+                                    12, faceXY, 0,
                                     null, 0,
-                                    model.meshColor, i * 6,
+                                    faceColor, 0,
                                     null, 0, 0,
                                     meshPaint,
                                 )
