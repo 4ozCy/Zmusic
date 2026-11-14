@@ -2,6 +2,8 @@ package com.zmusic.app.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -39,7 +41,14 @@ fun TrackEntity.toMediaItem(): MediaItem = MediaItem.Builder()
  */
 class PlayerController(context: Context) {
     private val mainExecutor = ContextCompat.getMainExecutor(context)
+    private val handler = Handler(Looper.getMainLooper())
     private var controller: MediaController? = null
+
+    /** Bumped by every [playQueue]; a background fill that holds an older value stops. */
+    private var queueToken = 0
+
+    /** Songs that failed back to back. Reset as soon as one plays. */
+    private var failuresInARow = 0
     private val pending = ArrayList<(MediaController) -> Unit>()
 
     private val _state = MutableStateFlow(PlayerUiState())
@@ -59,11 +68,21 @@ class PlayerController(context: Context) {
             sync(c, rebuildQueue = events.contains(Player.EVENT_TIMELINE_CHANGED))
         }
 
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) failuresInARow = 0
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             val title = controller?.currentMediaItem?.mediaMetadata?.title ?: "unknown track"
             BugLog.e("Playback", "${error.errorCodeName} while playing \"$title\": ${error.message}", error)
             // Corrupt/unsupported file: skip to the next track instead of getting stuck.
             val c = controller ?: return
+            // The queue wraps round, so a run of unplayable files would otherwise skip forever.
+            failuresInARow++
+            if (failuresInARow >= minOf(c.mediaItemCount, MAX_FAILURES_IN_A_ROW)) {
+                BugLog.w("Playback", "Stopped after $failuresInARow songs in a row failed to play")
+                return
+            }
             if (c.hasNextMediaItem()) {
                 c.seekToNextMediaItem()
                 c.prepare()
@@ -126,9 +145,11 @@ class PlayerController(context: Context) {
     }
 
     /**
-     * Big libraries are not sent whole: building and shipping thousands of MediaItems on the main
-     * thread made tapping a song feel laggy. Instead a window around the tapped song is queued
-     * (100 before, 300 after), which is plenty for normal listening and starts instantly.
+     * Big libraries are not sent in one go: building and shipping thousands of MediaItems on the
+     * main thread made tapping a song feel laggy. A window around the tapped song (100 before,
+     * 300 after) is queued first, so the song starts at once. The rest of the list then follows
+     * in small batches: the songs after the window, then the ones before it, so the queue runs on
+     * past the last song and round to the first.
      */
     fun playQueue(tracks: List<TrackEntity>, startIndex: Int) {
         if (tracks.isEmpty()) return
@@ -137,11 +158,27 @@ class PlayerController(context: Context) {
         val from = if (windowed) (idx - WINDOW_BEFORE).coerceAtLeast(0) else 0
         val to = if (windowed) (idx + WINDOW_AFTER).coerceAtMost(tracks.size) else tracks.size
         val items = tracks.subList(from, to).map { it.toMediaItem() }
+        val token = ++queueToken
         run { c ->
+            if (token != queueToken) return@run
+            failuresInARow = 0
             c.setMediaItems(items, idx - from, 0L)
             c.prepare()
             c.play()
+            val left = tracks.size - items.size
+            if (left > 0) handler.postDelayed({ fillQueue(c, tracks, to, left, token) }, FILL_GAP_MS)
         }
+    }
+
+    /**
+     * Appends [left] more songs to the queue, starting at [next] and wrapping past the end of
+     * [tracks], one batch per call. Stops if another [playQueue] has replaced the queue.
+     */
+    private fun fillQueue(c: MediaController, tracks: List<TrackEntity>, next: Int, left: Int, token: Int) {
+        if (token != queueToken || left <= 0) return
+        val n = minOf(FILL_BATCH, left)
+        c.addMediaItems(List(n) { tracks[(next + it) % tracks.size].toMediaItem() })
+        handler.postDelayed({ fillQueue(c, tracks, next + n, left - n, token) }, FILL_GAP_MS)
     }
 
     fun togglePlayPause() = run { c ->
@@ -174,5 +211,8 @@ class PlayerController(context: Context) {
         const val WINDOW_THRESHOLD = 400
         const val WINDOW_BEFORE = 100
         const val WINDOW_AFTER = 300
+        const val FILL_BATCH = 250
+        const val FILL_GAP_MS = 60L
+        const val MAX_FAILURES_IN_A_ROW = 8
     }
 }

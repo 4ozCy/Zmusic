@@ -50,6 +50,9 @@ class PlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+        // After the last song the queue starts over from the first, unless the listener turns
+        // repeat off.
+        player.repeatMode = Player.REPEAT_MODE_ALL
 
         // The Visualizer in AudioFrequencyTracker attaches to this session.
         AudioSession.id.value = player.audioSessionId

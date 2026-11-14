@@ -1,8 +1,10 @@
 package com.zmusic.app.ui.components
 
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 
@@ -17,11 +19,20 @@ import kotlin.math.sin
 internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private val tickCount = if (halo) TICKS else 0
     private val dashCount = if (halo) DASHES else 0
+    private val streamCount = if (halo) STREAMS * STREAM_SEGMENTS else 0
+    private val moteCount = if (halo) MOTES else 0
 
     /** Primitives `[0, tickStart)` are hoop faces (quads); `[tickStart, coreIndex)` are lines. */
     val tickStart = RINGS * segments
     private val dashStart = tickStart + tickCount
-    val coreIndex = dashStart + dashCount
+
+    /**
+     * Lines `[streamStart, moteStart)` are the aura streams. Each stream is a chain of short
+     * lines that fade along its length, so they want flat ends: round ones would bead at the joints.
+     */
+    val streamStart = dashStart + dashCount
+    val moteStart = streamStart + streamCount
+    val coreIndex = moteStart + moteCount
     val count = coreIndex + 1
 
     /** Screen-space points, 8 floats per primitive: a quad's four corners, or a line's two ends. */
@@ -88,9 +99,75 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private var drive = 0.30f
     private var lastSeconds = -1f
 
-    // Kick detector for the shockwave: bass against its own slow average.
+    // Kick detector: bass against its own slow average.
     private var bassSlow = 0f
     private var waveAge = -1f
+
+    /**
+     * The skill going off. A kick sets it between 0.45 and 1 by how hard the kick lands, and it
+     * falls back to 0 in about half a second. It drives the lightning, the focus lines, the core
+     * flare and the flash of the summoning circle. Kicks closer together than [IMPACT_GAP] leave
+     * it alone, which keeps the flashing under three a second.
+     */
+    var impact = 0f
+        private set
+    private var sinceImpact = 10f
+    private var armed = true
+    private var strike = 0
+
+    // Aura: streams of light winding up round the sculpture, and sparks rising between them.
+    private val streamPhase = FloatArray(STREAMS) { it * 0.41f % 1f }
+    private var auraTurn = 0f
+    private val motePhase = FloatArray(moteCount) { rand(it * 7 + 1) }
+    private val moteRate = FloatArray(moteCount) { 0.7f + 0.9f * rand(it * 7 + 2) }
+    private val moteAngle = FloatArray(moteCount) { TWO_PI * rand(it * 7 + 3) }
+    private val moteRadius = FloatArray(moteCount) { 1.16f + 0.34f * rand(it * 7 + 4) }
+
+    /**
+     * The summoning circle on the floor under the sculpture, as polylines of screen points: point
+     * `k` is at `k * 2` in [sigilXY], and starts a new polyline where [sigilStart] is true. The
+     * draw code strokes all of it as one path with opacity [sigilAlpha].
+     */
+    val sigilXY = FloatArray(if (halo) SIGIL_POINTS * 2 else 0)
+    val sigilStart = BooleanArray(if (halo) SIGIL_POINTS else 0)
+    var sigilPoints = 0
+        private set
+    var sigilAlpha = 0f
+        private set
+    private val sigilLocal = FloatArray(sigilXY.size)
+    private val sigilGroup = IntArray(sigilStart.size)
+    private val sigilTurn = FloatArray(SIGIL_GROUPS)
+
+    /** Screen position of the summoning circle's centre, and how much the tilt flattens the circle. */
+    val floorXY = FloatArray(2)
+    var floorScale = 1f
+        private set
+    var floorSquash = 0.5f
+        private set
+
+    /**
+     * Lightning from the core out to the hoops: [BOLTS] jagged polylines of [boltPoints] screen
+     * points each, bolt `b` starting at `b * boltPoints * 2` in [boltXY]. [boltAlpha] zero means
+     * "none showing".
+     */
+    val bolts = if (halo) BOLTS else 0
+    val boltPoints = BOLT_POINTS
+    val boltXY = FloatArray(bolts * BOLT_POINTS * 2)
+    var boltAlpha = 0f
+        private set
+    private val boltRing = IntArray(bolts)
+    private val boltSeg = IntArray(bolts)
+    private var boltAge = -1f
+    private var boltPeak = 0f
+
+    /**
+     * Focus lines: thin wedges pointing in at the sculpture from the edge of the frame, one
+     * triangle (6 floats) each in [focusXY]. [focusAlpha] zero means "none showing".
+     */
+    val focusLines = if (halo) FOCUS else 0
+    val focusXY = FloatArray(focusLines * 6)
+    var focusAlpha = 0f
+        private set
 
     // Scratch matrices, row-major 3x3.
     private val tilt = FloatArray(9)
@@ -103,6 +180,10 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private var cx = 0f
     private var cy = 0f
     private var unit = 1f
+
+    // Rotation of the summoning-circle group being projected.
+    private var turnCos = 1f
+    private var turnSin = 0f
 
     init {
         val step = (2.0 * PI / segments).toFloat()
@@ -120,6 +201,7 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
             val a = (k * 2.0 * PI / LOOP).toFloat()
             loopCos[k] = cos(a); loopSin[k] = sin(a)
         }
+        if (halo) buildSigil()
     }
 
     fun update(
@@ -132,12 +214,19 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         cy: Float,
         unit: Float,
         tickWidth: Float,
+        frameCx: Float = cx,
+        frameCy: Float = cy,
+        frameHalfWidth: Float = unit * 2f,
+        frameHalfHeight: Float = unit * 2f,
     ) {
         this.cx = cx
         this.cy = cy
         this.unit = unit
 
         // Integrate the gimbal angles so a change in speed never makes a hoop jump.
+        // First frame: start the kick detector's average at the level it finds, so whatever is
+        // already playing does not count as a kick.
+        if (lastSeconds < 0f) bassSlow = bass
         var dt = if (lastSeconds < 0f) 0f else t - lastSeconds
         if (dt < 0f || dt > 0.1f) dt = 0.016f
         lastSeconds = t
@@ -162,7 +251,12 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
             halo(bands, tickWidth)
             loop(0, CIRCLE_RADIUS, 0.55f, tickWidth * 0.55f)
             dashes(t, tickWidth)
-            shockwave(bass, dt, tickWidth)
+            kick(bass, dt)
+            shockwave(tickWidth)
+            aura(dt, bass, tickWidth)
+            sigil(dt, bass)
+            lightning(dt)
+            focus(frameCx, frameCy, frameHalfWidth, frameHalfHeight)
         }
 
         depth[coreIndex] = 0f
@@ -350,14 +444,44 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         }
     }
 
-    /** A ring of light thrown outward through the halo plane on every kick. */
-    private fun shockwave(bass: Float, dt: Float, tickWidth: Float) {
+    /**
+     * Listens for kicks. Every one restarts the shockwave. One that arrives on a rising edge, and
+     * at least [IMPACT_GAP] after the last, also sets off [impact] and picks where the lightning lands.
+     */
+    private fun kick(bass: Float, dt: Float) {
         bassSlow += (bass - bassSlow) * min1(dt * 2.5f)
+        val jump = bass - bassSlow
+        impact -= impact * min1(dt * 6f)
+        if (impact < 0.004f) impact = 0f
+        if (sinceImpact < 10f) sinceImpact += dt
         if (waveAge >= 0f) {
             waveAge += dt
             if (waveAge > WAVE_SECONDS) waveAge = -1f
         }
-        if ((waveAge < 0f || waveAge > 0.28f) && bass - bassSlow > 0.13f) waveAge = 0f
+        if (jump < 0.08f) armed = true
+        if (jump <= 0.13f) return
+        if (waveAge < 0f || waveAge > 0.28f) waveAge = 0f
+        val strength = 0.45f + 0.55f * ((jump - 0.13f) / 0.20f).coerceIn(0f, 1f)
+        if (armed && sinceImpact > IMPACT_GAP) {
+            armed = false
+            sinceImpact = 0f
+            strike++
+            impact = strength
+            boltAge = 0f
+            boltPeak = strength
+            for (b in 0 until bolts) {
+                boltRing[b] = b % RINGS
+                boltSeg[b] = (rand(strike * 31 + b * 7) * segments).toInt().coerceAtMost(segments - 1)
+            }
+        } else if (sinceImpact < IMPACT_RISE && strength > impact) {
+            // The kick is caught as it crosses the threshold, before it peaks: let it keep climbing.
+            impact = strength
+            boltPeak = strength
+        }
+    }
+
+    /** A ring of light thrown outward through the halo plane on every kick. */
+    private fun shockwave(tickWidth: Float) {
         if (waveAge < 0f) {
             loopNearAlpha[1] = 0f
             loopFarAlpha[1] = 0f
@@ -366,6 +490,210 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         val u = waveAge / WAVE_SECONDS
         val ease = 1f - (1f - u) * (1f - u)
         loop(1, HALO_RADIUS + 0.10f + 0.62f * ease, (1f - u) * (1f - u) * 0.75f, tickWidth * (1.3f - 0.8f * u))
+    }
+
+    /**
+     * The aura. Six streams of light climb from the summoning circle in a helix round the
+     * sculpture, each a bright head dragging a tail that thins and fades, and sparks rise
+     * straight up between them. Both keep outside the sphere the hoops sweep, so sorting them by
+     * depth against the hoop faces is always right. They climb faster as the music drives harder.
+     */
+    private fun aura(dt: Float, bass: Float, tickWidth: Float) {
+        val climb = dt * (0.10f + 0.20f * drive)
+        auraTurn = (auraTurn + climb * 1.6f) % TWO_PI
+        val glow = 0.65f + 0.35f * bass
+        for (i in 0 until STREAMS) {
+            streamPhase[i] = (streamPhase[i] + climb * STREAM_RATE[i]) % 1f
+            // The head runs past the top by the stream's own length, so the tail leaves before it restarts.
+            val head = streamPhase[i] * (1f + STREAM_LENGTH)
+            val turn = auraTurn + i * TWO_PI / STREAMS
+            val tint = i * 3
+            for (k in 0 until STREAM_SEGMENTS) {
+                val p = streamStart + i * STREAM_SEGMENTS + k
+                val s0 = head - STREAM_LENGTH * k / STREAM_SEGMENTS
+                val s1 = head - STREAM_LENGTH * (k + 1) / STREAM_SEGMENTS
+                if (s1 >= 1f || s0 <= 0f) {
+                    fill[p] = 0
+                    continue
+                }
+                val a = min(s0, 1f)
+                val b = max(s1, 0f)
+                val a0 = turn + a * STREAM_TURNS * TWO_PI
+                val a1 = turn + b * STREAM_TURNS * TWO_PI
+                val tail = 1f - k.toFloat() / STREAM_SEGMENTS
+                val fog = spaceLine(
+                    p,
+                    STREAM_RADIUS * cos(a0), FLOOR + (STREAM_TOP - FLOOR) * a, STREAM_RADIUS * sin(a0),
+                    STREAM_RADIUS * cos(a1), FLOOR + (STREAM_TOP - FLOOR) * b, STREAM_RADIUS * sin(a1),
+                    tickWidth * (0.35f + 1.35f * tail),
+                )
+                // Fades in off the floor and out again before the top.
+                val mid = (a + b) * 0.5f
+                val ends = smooth(mid * 8f) * smooth((1f - mid) * 4f)
+                fill[p] = argb(tail * (2f - tail) * ends * fog * glow, STREAM_TINT[tint], STREAM_TINT[tint + 1], STREAM_TINT[tint + 2])
+            }
+        }
+        val length = 0.04f + 0.04f * drive
+        for (i in 0 until moteCount) {
+            val p = moteStart + i
+            motePhase[i] = (motePhase[i] + climb * moteRate[i]) % 1f
+            val u = motePhase[i]
+            val a = moteAngle[i] - auraTurn
+            val x = moteRadius[i] * cos(a)
+            val z = moteRadius[i] * sin(a)
+            val y = FLOOR + (MOTE_TOP - FLOOR) * u
+            val fog = spaceLine(p, x, y, z, x, y + length, z, tickWidth * 0.6f)
+            fill[p] = argb(sin(u * PI.toFloat()) * fog * glow, 1f, 0.86f, 0.62f)
+        }
+    }
+
+    /**
+     * Lays the summoning circle out once, flat, in its own plane: `sigilLocal` holds (x, z) per
+     * point. Three groups turn independently: 0 is the outer rings and the band of runes, 1 the
+     * hexagram with a node on each point, 2 the small dial under the core.
+     */
+    private fun buildSigil() {
+        circle(0, 0f, 0f, 1.30f, 72)
+        circle(0, 0f, 0f, 1.24f, 72)
+        circle(0, 0f, 0f, 1.05f, 64)
+        // Runes: each sits in its own cell of the band between the rings, drawn from a short
+        // table of strokes given as (across, outward) pairs within the cell.
+        val cell = TWO_PI / RUNES
+        for (k in 0 until RUNES) {
+            val rune = (k * 7 + 3) % RUNE_COUNT
+            var joined = false
+            for (q in 0 until RUNE_STROKES) {
+                val o = (rune * RUNE_STROKES + q) * 2
+                val across = RUNE_TABLE[o]
+                if (across < 0f) {
+                    joined = false
+                    continue
+                }
+                val a = (k + 0.26f + 0.48f * across) * cell
+                val r = 1.095f + 0.10f * RUNE_TABLE[o + 1]
+                point(0, r * cos(a), r * sin(a), start = !joined)
+                joined = true
+            }
+        }
+        // Hexagram: two triangles inscribed in the inner ring, and the circle that fits inside them.
+        for (tri in 0 until 2) {
+            for (k in 0..3) {
+                val a = tri * TWO_PI / 6f + k * TWO_PI / 3f
+                point(1, 1.05f * cos(a), 1.05f * sin(a), start = k == 0)
+            }
+        }
+        for (k in 0 until 6) {
+            val a = k * TWO_PI / 6f
+            circle(1, 1.05f * cos(a), 1.05f * sin(a), 0.055f, 10)
+        }
+        circle(1, 0f, 0f, 0.525f, 48)
+        circle(2, 0f, 0f, 0.34f, 32)
+        for (k in 0 until 12) {
+            val a = k * TWO_PI / 12f
+            point(2, 0.38f * cos(a), 0.38f * sin(a), start = true)
+            point(2, 0.47f * cos(a), 0.47f * sin(a), start = false)
+        }
+    }
+
+    private fun point(group: Int, x: Float, z: Float, start: Boolean) {
+        if (sigilPoints == sigilStart.size) return
+        sigilLocal[sigilPoints * 2] = x
+        sigilLocal[sigilPoints * 2 + 1] = z
+        sigilGroup[sigilPoints] = group
+        sigilStart[sigilPoints] = start
+        sigilPoints++
+    }
+
+    /** A closed circle of [n] sides. It runs one side past its start, so the stroke has no open end. */
+    private fun circle(group: Int, x: Float, z: Float, radius: Float, n: Int) {
+        for (k in 0..n + 1) {
+            val a = k * TWO_PI / n
+            point(group, x + radius * cos(a), z + radius * sin(a), start = k == 0)
+        }
+    }
+
+    /** Turns the summoning circle's groups, swells it with the bass, and projects it onto the floor. */
+    private fun sigil(dt: Float, bass: Float) {
+        val pace = dt * (0.5f + 0.5f * drive)
+        val swell = 1f + 0.04f * bass + 0.05f * impact
+        for (k in 0 until sigilPoints) {
+            val g = sigilGroup[k]
+            if (k == 0 || g != sigilGroup[k - 1]) {
+                sigilTurn[g] = (sigilTurn[g] + SIGIL_SPEED[g] * pace + TWO_PI) % TWO_PI
+                turnCos = cos(sigilTurn[g]) * swell
+                turnSin = sin(sigilTurn[g]) * swell
+            }
+            val x = sigilLocal[k * 2]
+            val z = sigilLocal[k * 2 + 1]
+            project(tilt, x * turnCos - z * turnSin, FLOOR, x * turnSin + z * turnCos, sigilXY, k * 2)
+        }
+        sigilAlpha = (0.30f + 0.38f * bass + 0.32f * impact).coerceAtMost(1f)
+        floorScale = project(tilt, 0f, FLOOR, 0f, floorXY, 0)
+        floorSquash = abs(tilt[5])
+    }
+
+    /**
+     * Lightning. For a fifth of a second after [impact] goes off, a bolt jumps from the core to a
+     * point on each hoop, and one more shoots on past the outer hoop. Each bolt follows its
+     * landing point as the hoop turns, and its kinks are redrawn every 45 ms so it crackles.
+     */
+    private fun lightning(dt: Float) {
+        if (boltAge < 0f) {
+            boltAlpha = 0f
+            return
+        }
+        boltAge += dt
+        if (boltAge > BOLT_SECONDS) {
+            boltAge = -1f
+            boltAlpha = 0f
+            return
+        }
+        val u = boltAge / BOLT_SECONDS
+        boltAlpha = (1f - u * u) * boltPeak
+        val flicker = (boltAge / 0.045f).toInt()
+        for (b in 0 until bolts) {
+            val o = (boltRing[b] * segments + boltSeg[b]) * 8
+            val reach = if (b >= RINGS) 1.6f else 1f
+            val dx = ((xy[o] + xy[o + 6]) * 0.5f - cx) * reach
+            val dy = ((xy[o + 1] + xy[o + 7]) * 0.5f - cy) * reach
+            val at = b * BOLT_POINTS * 2
+            for (k in 0 until BOLT_POINTS) {
+                val f = k / (BOLT_POINTS - 1f)
+                // Sideways kink, as a fraction of the bolt's length. None at the core.
+                val kink = if (k == 0) 0f else (rand(strike * 131 + b * 17 + flicker * 7 + k) - 0.5f) * 0.24f
+                boltXY[at + k * 2] = cx + dx * f - dy * kink
+                boltXY[at + k * 2 + 1] = cy + dy * f + dx * kink
+            }
+        }
+    }
+
+    /**
+     * Focus lines round the edge of the frame while [impact] is high. They are redrawn in new
+     * places every 60 ms, the way hand-drawn ones boil from frame to frame.
+     */
+    private fun focus(fx: Float, fy: Float, halfWidth: Float, halfHeight: Float) {
+        val strength = impact * impact
+        if (focusLines == 0 || strength < 0.02f) {
+            focusAlpha = 0f
+            return
+        }
+        focusAlpha = strength * 0.55f
+        val boil = (sinceImpact / 0.06f).toInt()
+        for (i in 0 until focusLines) {
+            val seed = strike * 977 + boil * 131 + i * 13
+            val a = (i + rand(seed)) * TWO_PI / focusLines
+            val c = cos(a)
+            val s = sin(a)
+            // Distance from the frame's centre to its edge in this direction.
+            val edge = min(halfWidth / max(abs(c), 1e-3f), halfHeight / max(abs(s), 1e-3f))
+            val outer = edge * 1.02f
+            val inner = edge * (0.80f + 0.17f * rand(seed + 1))
+            val w = edge * (0.004f + 0.012f * rand(seed + 2))
+            val o = i * 6
+            focusXY[o] = fx + c * outer - s * w; focusXY[o + 1] = fy + s * outer + c * w
+            focusXY[o + 2] = fx + c * outer + s * w; focusXY[o + 3] = fy + s * outer - c * w
+            focusXY[o + 4] = fx + c * inner; focusXY[o + 5] = fy + s * inner
+        }
     }
 
     /** A line lying in the halo plane, given in polar form. Stores its width and depth, returns its fog. */
@@ -379,10 +707,32 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         return fog(z)
     }
 
+    /**
+     * A line between two points of the tilted (not yawed) frame. Stores its width and depth,
+     * returns its fog.
+     */
+    private fun spaceLine(p: Int, x0: Float, y0: Float, z0: Float, x1: Float, y1: Float, z1: Float, lineWidth: Float): Float {
+        val o = p * 8
+        val scale = project(tilt, x0, y0, z0, xy, o)
+        project(tilt, x1, y1, z1, xy, o + 2)
+        val z = tilt[7] * (y0 + y1) * 0.5f + tilt[8] * (z0 + z1) * 0.5f
+        depth[p] = z
+        width[p] = lineWidth * scale
+        return fog(z)
+    }
+
     /** Things in the halo plane fade as they recede. */
     private fun fog(z: Float): Float = 0.35f + 0.65f * ((z + 1.4f) / 2.8f).coerceIn(0f, 1f)
 
     private fun min1(v: Float): Float = if (v > 1f) 1f else v
+
+    /** A repeatable scatter value in 0 until 1 for [seed]. */
+    private fun rand(seed: Int): Float {
+        var x = seed * 747796405 + 1013904223
+        x = ((x ushr ((x ushr 28) + 4)) xor x) * 277803737
+        x = x xor (x ushr 22)
+        return (x ushr 8) / 16777216f
+    }
 
     /** Rotates a local point by [m], applies the perspective divide, stores it in [out] at [at]. Returns the scale used. */
     private fun project(m: FloatArray, x: Float, y: Float, z: Float, out: FloatArray, at: Int): Float {
@@ -454,6 +804,39 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         const val DASH_RADIUS = 1.19f
         const val TWO_PI = 6.2831855f
 
+        /** Shortest time between two impacts, in seconds. */
+        const val IMPACT_GAP = 0.36f
+
+        /** How long after it starts an impact may still grow, while the kick is still rising. */
+        const val IMPACT_RISE = 0.10f
+
+        /**
+         * Height of the summoning circle's plane below the core (y points down). The hoops sweep a
+         * sphere of radius 1.10 at their fullest, so the circle clears them.
+         */
+        const val FLOOR = 1.15f
+        const val SIGIL_POINTS = 640
+        const val SIGIL_GROUPS = 3
+        const val RUNES = 20
+
+        const val STREAMS = 6
+        const val STREAM_SEGMENTS = 18
+
+        /** Share of the climb that one stream covers from head to tail. */
+        const val STREAM_LENGTH = 0.38f
+
+        /** Turns of the helix over the whole climb. Low, so a stream reads as rising, not as another hoop. */
+        const val STREAM_TURNS = 0.32f
+        const val STREAM_RADIUS = 1.30f
+        const val STREAM_TOP = -1.30f
+        const val MOTES = 22
+        const val MOTE_TOP = -1.20f
+
+        const val BOLTS = 4
+        const val BOLT_POINTS = 9
+        const val BOLT_SECONDS = 0.20f
+        const val FOCUS = 44
+
         /** How far the light wraps past the terminator. Softens the shadow side of a hoop. */
         const val WRAP = 0.35f
 
@@ -483,6 +866,35 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
 
         /** Base angular speed of each gimbal, radians per second. Opposed, so they never look locked together. */
         val SPEED = floatArrayOf(0.42f, -0.66f, 1.05f)
+
+        /** Turning speed of each summoning-circle group, radians per second at full drive. */
+        val SIGIL_SPEED = floatArrayOf(-0.30f, 0.22f, -0.80f)
+
+        /** How fast each stream climbs relative to the others, and its colour: amber, lilac and warm white in turn. */
+        val STREAM_RATE = floatArrayOf(1.00f, 0.83f, 1.21f, 0.92f, 1.12f, 0.76f)
+        val STREAM_TINT = floatArrayOf(
+            1.00f, 0.82f, 0.56f,
+            0.80f, 0.82f, 1.00f,
+            1.00f, 0.95f, 0.86f,
+            1.00f, 0.82f, 0.56f,
+            0.80f, 0.82f, 1.00f,
+            1.00f, 0.95f, 0.86f,
+        )
+
+        /**
+         * Six made-up runes. Each is up to [RUNE_STROKES] points given as (across, outward), both
+         * 0..1 within the rune's cell; consecutive points are joined, and a negative pair lifts the pen.
+         */
+        const val RUNE_COUNT = 6
+        const val RUNE_STROKES = 6
+        val RUNE_TABLE = floatArrayOf(
+            0f, 0f, 0f, 1f, 1f, 0.55f, 0f, 0.35f, -1f, -1f, -1f, -1f,
+            0.5f, 0f, 0.5f, 1f, -1f, -1f, 0f, 0.75f, 1f, 0.30f, -1f, -1f,
+            0f, 0f, 1f, 1f, -1f, -1f, 1f, 0f, 0f, 1f, -1f, -1f,
+            0f, 0f, 0f, 1f, 0.5f, 0.45f, 1f, 1f, 1f, 0f, -1f, -1f,
+            0.5f, 0f, 0.5f, 1f, 1f, 0.60f, -1f, -1f, 0.5f, 1f, 0f, 0.60f,
+            0f, 0f, 0f, 1f, 1f, 0.75f, -1f, -1f, 0f, 0.5f, 1f, 0.25f,
+        )
 
         /**
          * Palette, four RGB tones per hoop: rim ink, shadow, base, light, blended continuously

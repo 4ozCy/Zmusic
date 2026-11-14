@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
@@ -29,7 +30,7 @@ import kotlin.math.sin
 
 /**
  * The Now Playing centrepiece, standing where album art would be: an acoustic gyroscope in
- * polished metal.
+ * polished metal, staged like the big skill in an anime going off.
  *
  * Three nested hoops, each a real cylindrical band in 3D, gimballed inside one another (outer
  * turns about X, the middle about Y inside the outer's frame, the inner about X inside the
@@ -40,19 +41,30 @@ import kotlin.math.sin
  * face, so tone and sheen run all the way round without a step; a bevel line runs along every
  * rim, and a star glint sits on each highlight. The magic circle's rings are single strokes.
  *
+ * Round the hoops, at hero size only:
+ * - a summoning circle on the floor below: double ring, a band of runes, a hexagram and a dial,
+ *   turning against each other, with a pillar of light rising from its centre through the core
+ * - an aura: six streams of light winding up round the sculpture, and sparks rising between them
+ * - on a hard kick, the impact: lightning from the core to the hoops, focus lines in from the
+ *   edge of the frame, and the core star stretching into a flare
+ *
  * Audio mapping:
- * - mid    -> how fast the gimbals turn
- * - bass   -> hoop radius (they breathe outward on a kick), star size, outer glow strength;
- *             a sharp kick also throws a shockwave ring out through the magic circle
+ * - mid    -> how fast the gimbals turn, the aura climbs and the summoning circle turns
+ * - bass   -> hoop radius (they breathe outward on a kick), star size, outer glow strength, the
+ *             pillar and the summoning circle's brightness; a sharp kick also throws a shockwave
+ *             ring out through the magic circle and sets off the impact
  * - treble -> how wide the sheen opens and how big the glints flare
  * - the twelve analysed bands -> tick lengths, mirrored left and right
+ *
+ * Paused, the breathing input never kicks, so the scene idles: the circle turns and the aura
+ * drifts, with no lightning.
  *
  * Cost: all geometry lives in arrays allocated once in [GyroModel]; a frame allocates next to
  * nothing (a gradient per halo circle) and issues several hundred small draw ops. It redraws from
  * the tracker's frame tick, never recomposes.
  *
- * @param halo draw the magic circle, glints and shockwave. Turn it off for small sizes (mini
- *   player, brand mark).
+ * @param halo draw everything round the hoops: magic circle, glints, shockwave, summoning circle,
+ *   aura and impact. Turn it off for small sizes (mini player, brand mark).
  * @param segments faces per hoop. 120 keeps the outline round at hero size; 36 is plenty below ~64dp.
  */
 @Composable
@@ -65,8 +77,12 @@ fun KineticGyroscope(
     val model = remember(segments, halo) { GyroModel(segments, halo) }
     Box(
         modifier.drawWithCache {
-            val centre = Offset(size.width / 2f, size.height / 2f)
-            val unit = min(size.width, size.height) / 2f * (if (halo) 0.56f else 0.84f)
+            val halfWidth = size.width / 2f
+            val halfHeight = size.height / 2f
+            // With the halo the scene reaches about 1.7 units either side of the core, 1.5 above
+            // it and 2 below (the summoning circle), so the core sits above the middle of the box.
+            val unit = if (halo) min(halfWidth / 1.72f, size.height / 3.6f) else min(halfWidth, halfHeight) * 0.84f
+            val centre = Offset(halfWidth, if (halo) halfHeight - 0.25f * unit else halfHeight)
             val ink = max(1f, 1.5.dp.toPx() * (if (halo) 1f else 0.5f))
             // Unit-radius brush, placed with a transform each frame so it is never rebuilt.
             val glow = Brush.radialGradient(
@@ -76,6 +92,24 @@ fun KineticGyroscope(
                 center = Offset.Zero,
                 radius = 1f,
             )
+            // Unit-radius brushes for the pillar of light and the pool of light under the summoning circle.
+            val pillar = Brush.radialGradient(
+                0f to Nocturne.Amber.copy(alpha = 0.60f),
+                0.30f to Nocturne.Amber.copy(alpha = 0.22f),
+                1f to Color.Transparent,
+                center = Offset.Zero,
+                radius = 1f,
+            )
+            val pool = Brush.radialGradient(
+                0f to Nocturne.Indigo.copy(alpha = 0.34f),
+                0.70f to Nocturne.Indigo.copy(alpha = 0.10f),
+                1f to Color.Transparent,
+                center = Offset.Zero,
+                radius = 1f,
+            )
+            val sigilStroke = Stroke(width = max(1f, 1.1.dp.toPx()), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val boltGlow = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            val boltCore = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Miter)
             val star = starPath(waist = 0.085f)
             val path = Path()
             // Blended shading needs per-corner colours, which the platform only draws on a
@@ -102,7 +136,12 @@ fun KineticGyroscope(
                     cy = centre.y,
                     unit = unit,
                     tickWidth = 2.dp.toPx(),
+                    frameCx = halfWidth,
+                    frameCy = halfHeight,
+                    frameHalfWidth = halfWidth,
+                    frameHalfHeight = halfHeight,
                 )
+                val impact = model.impact
 
                 // Light spilling out behind the sculpture.
                 val glowRadius = unit * (if (halo) 2.0f + 0.5f * bass else 1.5f + 0.4f * bass)
@@ -110,8 +149,11 @@ fun KineticGyroscope(
                     translate(centre.x, centre.y)
                     scale(glowRadius, glowRadius, pivot = Offset.Zero)
                 }) {
-                    drawCircle(glow, radius = 1f, center = Offset.Zero, alpha = 0.30f + 0.60f * bass)
+                    drawCircle(glow, radius = 1f, center = Offset.Zero, alpha = (0.30f + 0.60f * bass + 0.30f * impact).coerceAtMost(1f))
                 }
+
+                // The floor lies under everything, so it goes down first.
+                if (halo) drawFloor(model, path, pool, pillar, sigilStroke, unit, bass)
 
                 // The far halves of the halo's circles pass behind the hoops, the near halves in front.
                 if (halo) {
@@ -125,7 +167,7 @@ fun KineticGyroscope(
                     val i = model.order[n]
                     val o = i * 8
                     when {
-                        i == model.coreIndex -> drawCore(star, centre, unit, bass, t)
+                        i == model.coreIndex -> drawCore(star, centre, unit, bass, t, impact)
 
                         i >= model.tickStart -> {
                             val argb = model.fill[i]
@@ -135,7 +177,7 @@ fun KineticGyroscope(
                                     start = Offset(xy[o], xy[o + 1]),
                                     end = Offset(xy[o + 2], xy[o + 3]),
                                     strokeWidth = model.width[i],
-                                    cap = StrokeCap.Round,
+                                    cap = if (i >= model.streamStart && i < model.moteStart) StrokeCap.Butt else StrokeCap.Round,
                                 )
                             }
                         }
@@ -184,9 +226,72 @@ fun KineticGyroscope(
                         drawStar(star, at, s, 0f, Color.White)
                     }
                 }
+
+                if (halo) drawImpact(model, path, boltGlow, boltCore)
             }
         },
     )
+}
+
+/**
+ * The summoning circle on the floor: a pool of light, the circle itself as one stroked path (so
+ * no joint shows anywhere on it), and the pillar of light rising from its centre.
+ */
+private fun DrawScope.drawFloor(model: GyroModel, path: Path, pool: Brush, pillar: Brush, stroke: Stroke, unit: Float, bass: Float) {
+    val x = model.floorXY[0]
+    val y = model.floorXY[1]
+    val impact = model.impact
+    val reach = unit * 1.45f * model.floorScale
+    withTransform({
+        translate(x, y)
+        scale(reach, reach * model.floorSquash, pivot = Offset.Zero)
+    }) {
+        drawCircle(pool, radius = 1f, center = Offset.Zero, alpha = model.sigilAlpha)
+    }
+
+    path.reset()
+    val points = model.sigilXY
+    for (k in 0 until model.sigilPoints) {
+        if (model.sigilStart[k]) path.moveTo(points[k * 2], points[k * 2 + 1]) else path.lineTo(points[k * 2], points[k * 2 + 1])
+    }
+    drawPath(path, SigilLine, alpha = model.sigilAlpha, style = stroke)
+
+    // Only the part above the floor: the pillar stands on the circle.
+    clipRect(top = -size.height, bottom = y) {
+        withTransform({
+            translate(x, y)
+            scale(unit * 0.36f, unit * 3.0f, pivot = Offset.Zero)
+        }) {
+            drawCircle(pillar, radius = 1f, center = Offset.Zero, alpha = (0.14f + 0.30f * bass + 0.50f * impact).coerceAtMost(1f))
+        }
+    }
+}
+
+/** What a hard kick sets off on top of everything: lightning, then focus lines at the frame's edge. */
+private fun DrawScope.drawImpact(model: GyroModel, path: Path, glow: Stroke, core: Stroke) {
+    if (model.boltAlpha > 0f) {
+        val points = model.boltXY
+        path.reset()
+        for (b in 0 until model.bolts) {
+            val at = b * model.boltPoints * 2
+            path.moveTo(points[at], points[at + 1])
+            for (k in 1 until model.boltPoints) path.lineTo(points[at + k * 2], points[at + k * 2 + 1])
+        }
+        drawPath(path, BoltGlow, alpha = 0.55f * model.boltAlpha, style = glow)
+        drawPath(path, Color.White, alpha = model.boltAlpha, style = core)
+    }
+    if (model.focusAlpha > 0f) {
+        val points = model.focusXY
+        path.reset()
+        for (i in 0 until model.focusLines) {
+            val o = i * 6
+            path.moveTo(points[o], points[o + 1])
+            path.lineTo(points[o + 2], points[o + 3])
+            path.lineTo(points[o + 4], points[o + 5])
+            path.close()
+        }
+        drawPath(path, Color.White, alpha = model.focusAlpha)
+    }
 }
 
 /**
@@ -219,15 +324,25 @@ private fun DrawScope.drawLoop(model: GyroModel, index: Int, near: Boolean, path
 
 /**
  * The light at the centre: hard-edged discs instead of a soft bloom, under a slowly turning
- * four-point star with a smaller one set diagonally across it.
+ * four-point star with a smaller one set diagonally across it. On an impact the stars swell and
+ * a long flat flare cuts across them.
  */
-private fun DrawScope.drawCore(star: Path, centre: Offset, unit: Float, bass: Float, t: Float) {
+private fun DrawScope.drawCore(star: Path, centre: Offset, unit: Float, bass: Float, t: Float, impact: Float) {
     val pulse = 0.5f + 0.5f * bass
-    drawCircle(Nocturne.Amber, radius = unit * (0.17f + 0.13f * bass), center = centre, alpha = 0.16f + 0.10f * bass)
+    val swell = 1f + 0.7f * impact
+    drawCircle(Nocturne.Amber, radius = unit * (0.17f + 0.13f * bass) * swell, center = centre, alpha = 0.16f + 0.10f * bass)
     drawCircle(Nocturne.Amber, radius = unit * (0.105f + 0.08f * bass), center = centre, alpha = 0.50f)
     val spin = t * 14f
-    drawStar(star, centre, unit * (0.16f + 0.14f * bass), spin + 45f, CoreWarm)
-    drawStar(star, centre, unit * (0.32f + 0.26f * bass), spin, Nocturne.Alabaster)
+    drawStar(star, centre, unit * (0.16f + 0.14f * bass) * swell, spin + 45f, CoreWarm)
+    drawStar(star, centre, unit * (0.32f + 0.26f * bass) * swell, spin, Nocturne.Alabaster)
+    if (impact > 0.01f) {
+        withTransform({
+            translate(centre.x, centre.y)
+            scale(unit * (0.6f + 1.5f * impact), unit * 0.30f * impact, pivot = Offset.Zero)
+        }) {
+            drawPath(star, Color.White, alpha = impact)
+        }
+    }
     drawCircle(Color.White, radius = unit * 0.055f * (0.8f + 0.4f * pulse), center = centre)
 }
 
@@ -257,3 +372,5 @@ private val CoreWarm = Color(0xFFFFD9A0)
 private val GlintHalo = Color(0x55FFE9C4)
 private val GuideCircle = Color(0xFFCCD1FA)
 private val Shockwave = Color(0xFFFFE6BD)
+private val SigilLine = Color(0xFFC9CCFF)
+private val BoltGlow = Color(0xFF8C8FFF)
