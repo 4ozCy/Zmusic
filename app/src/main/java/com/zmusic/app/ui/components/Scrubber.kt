@@ -216,7 +216,7 @@ private fun TimePill(
     Text(
         text = formatTime((fraction.floatValue * durationMs).toLong()),
         style = TimeStyle,
-        color = MaterialTheme.colorScheme.onSurface,
+        color = Color.White,
         modifier = modifier
             .offset {
                 val x = fraction.floatValue * widthPx - pillW / 2f

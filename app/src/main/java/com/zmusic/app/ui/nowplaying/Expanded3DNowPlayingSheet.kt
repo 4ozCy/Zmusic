@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -251,6 +252,7 @@ fun Expanded3DNowPlayingSheet(
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         Eyebrow(
                             if (state.queue.isNotEmpty()) "Now playing · ${state.currentIndex + 1} / ${state.queue.size}" else "Now playing",
+                            color = Color.White,
                         )
                     }
                     GlassIconButton(
@@ -347,7 +349,7 @@ fun Expanded3DNowPlayingSheet(
 
 @Composable
 private fun TimeRow(position: State<Long>, durationMs: Long) {
-    val c = AppTheme.extended.faint
+    val c = Color.White
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(formatTime(position.value), style = TimeStyle, color = c)
         Text(formatTime(durationMs), style = TimeStyle, color = c)
@@ -378,7 +380,7 @@ private fun TrackMeta(title: String, artist: String, album: String, direction: I
             Text(
                 text = a,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 8.dp),
@@ -387,7 +389,7 @@ private fun TrackMeta(title: String, artist: String, album: String, direction: I
                 Text(
                     text = al,
                     style = MaterialTheme.typography.bodySmall,
-                    color = AppTheme.extended.faint,
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
@@ -406,6 +408,7 @@ private fun TrackTitle(text: String, style: TextStyle, modifier: Modifier = Modi
         Text(
             text = text,
             style = style,
+            color = Color.White,
             maxLines = 2,
             overflow = TextOverflow.Clip,
             onTextLayout = { if (it.hasVisualOverflow) overflow = true },
@@ -415,6 +418,7 @@ private fun TrackTitle(text: String, style: TextStyle, modifier: Modifier = Modi
         Text(
             text = text,
             style = style,
+            color = Color.White,
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Clip,
@@ -428,6 +432,8 @@ private fun TrackTitle(text: String, style: TextStyle, modifier: Modifier = Modi
 private fun QueuePanel(s: PlayerUiState, actions: NowPlayingActions, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = (s.currentIndex - 1).coerceAtLeast(0))
     val primary = MaterialTheme.colorScheme.primary
+    val rowStyle = MaterialTheme.typography.bodyLarge
+    val currentStyle = remember(rowStyle) { rowStyle.copy(fontWeight = FontWeight.ExtraBold) }
     Column(modifier) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 20.dp),
@@ -436,17 +442,23 @@ private fun QueuePanel(s: PlayerUiState, actions: NowPlayingActions, modifier: M
         ) {
             KineticGyroscope(Modifier.size(52.dp), halo = false, segments = 24)
             Column(Modifier.weight(1f)) {
-                Text(s.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    s.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text(
                     s.artist,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        Eyebrow("Queue · ${s.queue.size}", modifier = Modifier.padding(bottom = 8.dp))
+        Eyebrow("Queue · ${s.queue.size}", modifier = Modifier.padding(bottom = 8.dp), color = Color.White)
         HairlineDivider()
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(s.queue, key = { q -> "${q.index}-${q.mediaId}" }) { q ->
@@ -462,20 +474,22 @@ private fun QueuePanel(s: PlayerUiState, actions: NowPlayingActions, modifier: M
                     Text(
                         text = (q.index + 1).toString().padStart(2, '0'),
                         style = TimeStyle,
-                        color = if (current) primary else AppTheme.extended.faint,
+                        color = Color.White,
                     )
                     Column(Modifier.weight(1f)) {
                         Text(
                             q.title,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (current) primary else MaterialTheme.colorScheme.onSurface,
+                            // All type on this sheet is white; the playing row is marked by
+                            // weight and by the amber bars beside it.
+                            style = if (current) currentStyle else rowStyle,
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             q.artist,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
