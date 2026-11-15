@@ -45,8 +45,8 @@ val LocalGyroVariant = compositionLocalOf { GyroVariant.Gyroscope }
 /**
  * The Now Playing centrepiece, standing where album art would be. It is one of four sculptures
  * ([GyroVariant]): the gyroscope below, or one of the emblems drawn by [KineticEmblem]. When
- * [variant] changes, the old sculpture bursts outward and fades while the new one swells up out
- * of the core.
+ * [variant] changes, the old sculpture bursts outward and fades. The gyroscope swells up out of
+ * the core; an emblem fades in and plays its own entrance.
  *
  * @param halo draw the sculpture at hero size, with everything round it. Turn it off for small
  *   sizes (mini player, brand mark).
@@ -64,7 +64,12 @@ fun KineticGyroscope(
         targetState = variant,
         modifier = modifier,
         transitionSpec = {
-            val enter = fadeIn(tween(420, delayMillis = 140)) + scaleIn(tween(520, delayMillis = 140), initialScale = 0.55f)
+            // An emblem plays its own entrance (see EmblemModel), so it only needs fading in.
+            val enter = if (targetState == GyroVariant.Gyroscope) {
+                fadeIn(tween(420, delayMillis = 140)) + scaleIn(tween(520, delayMillis = 140), initialScale = 0.55f)
+            } else {
+                fadeIn(tween(200, delayMillis = 120))
+            }
             val exit = fadeOut(tween(260)) + scaleOut(tween(320), targetScale = 1.35f)
             // Unclipped: the outgoing sculpture grows past its box on the way out.
             (enter togetherWith exit).using(SizeTransform(clip = false))
