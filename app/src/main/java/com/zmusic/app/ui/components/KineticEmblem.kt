@@ -24,14 +24,14 @@ import kotlin.math.sin
  * also says how each one moves and answers a kick. This paints what the model worked out, back
  * to front:
  *
- * 1. light behind the emblem: a glow in its colours, the Eclipse's lens streak, the Astrolabe's
- *    nebula and comet, the Sunwheel's rays
+ * 1. light behind the emblem: the Eclipse's corona and lens streak, the Sunwheel's sun and rays,
+ *    the Astrolabe's nebula and comet
  * 2. halos: every glowing outline of one colour goes into a single path, stroked four times from
  *    wide and faint to narrow and strong, so overlapping outlines never bead
  * 3. the model's items, far to near: lit facets, outlines, dots. A line the Astrolabe is still
  *    drawing in is cut short where its pen has got to.
  * 4. what sits on top: the Eclipse's corona flash and crescent slashes, the Sunwheel's white-hot
- *    core and speed dashes, the Astrolabe's orb, ripples and constellation
+ *    core and speed dashes, the Astrolabe's pin, ripples and constellation
  *
  * Cost: the model allocates nothing per frame, and the paths and paints here are reused. A frame
  * issues a few hundred small draw ops. It redraws from the tracker's frame tick, never recomposes.
@@ -59,6 +59,16 @@ internal fun KineticEmblem(variant: GyroVariant, modifier: Modifier = Modifier, 
             val backdrop = Brush.radialGradient(
                 0f to inner.copy(alpha = 0.33f),
                 0.45f to outer.copy(alpha = 0.13f),
+                1f to Color.Transparent,
+                center = Offset.Zero,
+                radius = 1f,
+            )
+            // The Eclipse's light is a corona: dark in the middle, brightest in a ring behind the silver.
+            val corona = Brush.radialGradient(
+                0f to Color.Transparent,
+                0.42f to Color.Transparent,
+                0.62f to inner.copy(alpha = 0.34f),
+                0.78f to outer.copy(alpha = 0.12f),
                 1f to Color.Transparent,
                 center = Offset.Zero,
                 radius = 1f,
@@ -117,7 +127,11 @@ internal fun KineticEmblem(variant: GyroVariant, modifier: Modifier = Modifier, 
 
                 // 1. Light behind the emblem.
                 val light = (0.45f + 0.55f * bass + 0.30f * impact).coerceAtMost(1f)
-                disc(backdrop, centre, if (fine) unit * (1.9f + 0.4f * bass) else half * 1.25f, light)
+                if (model.variant == GyroVariant.Eclipse) {
+                    disc(corona, centre, unit * (1.62f + 0.12f * bass + 0.10f * impact), light)
+                } else {
+                    disc(backdrop, centre, if (fine) unit * (1.9f + 0.4f * bass) else half * 1.25f, light)
+                }
                 when (model.variant) {
                     GyroVariant.Eclipse -> if (fine) {
                         // The lens streak belongs to the camera, so it stays level however the emblem turns.
@@ -272,19 +286,11 @@ internal fun KineticEmblem(variant: GyroVariant, modifier: Modifier = Modifier, 
                     }
 
                     else -> {
-                        // The orb at the heart of the starburst: a warm bloom, a white point, and a tilted ring turning round it.
+                        // The pin at the top of the axle: a warm bloom and a white point under the crosshair.
                         val swell = 1f + 0.3f * impact
                         disc(ember, core, coreUnit * (0.34f + 0.16f * bass) * swell, 1f)
                         fill.color = tint(WHITE, 1f)
                         native.drawCircle(core.x, core.y, coreUnit * (0.045f + 0.03f * bass) * swell, fill)
-                        val rx = coreUnit * 0.20f * swell
-                        val ry = rx * 0.32f
-                        native.save()
-                        native.rotate(t * 40f, core.x, core.y)
-                        stroke.color = tint(ORB_RING, 0.8f)
-                        stroke.strokeWidth = lineUnit * 1.2f
-                        native.drawOval(core.x - rx, core.y - ry, core.x + rx, core.y + ry, stroke)
-                        native.restore()
 
                         for (k in 0 until model.ripples) {
                             val alpha = model.rippleAlpha[k]
@@ -404,7 +410,6 @@ private val NebulaViolet = Color(0xFF9E5CFF)
 private val NebulaBlue = Color(0xFF4080FF)
 private val OrbHot = Color(0xFFFFF2D9)
 private val OrbGlow = Color(0xFFFFA840)
-private const val ORB_RING = 0xFFE3B0
 private const val RIPPLE = 0xC4D6FF
 private const val CONSTELLATION = 0xFFDF9E
 private const val COMET = 0xE0EAFF

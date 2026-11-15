@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,8 +46,8 @@ val LocalGyroVariant = compositionLocalOf { GyroVariant.Gyroscope }
 /**
  * The Now Playing centrepiece, standing where album art would be. It is one of four sculptures
  * ([GyroVariant]): the gyroscope below, or one of the emblems drawn by [KineticEmblem]. When
- * [variant] changes, the old sculpture bursts outward and fades. The gyroscope swells up out of
- * the core; an emblem fades in and plays its own entrance.
+ * [variant] changes, the old sculpture leaves in its own way and the new one arrives: the
+ * gyroscope swells up out of the core; an emblem fades in and plays its own entrance.
  *
  * @param halo draw the sculpture at hero size, with everything round it. Turn it off for small
  *   sizes (mini player, brand mark).
@@ -70,8 +71,15 @@ fun KineticGyroscope(
             } else {
                 fadeIn(tween(200, delayMillis = 120))
             }
-            val exit = fadeOut(tween(260)) + scaleOut(tween(320), targetScale = 1.35f)
-            // Unclipped: the outgoing sculpture grows past its box on the way out.
+            // Each leaves in character: the gyroscope bursts outward, the Eclipse falls into its own
+            // core, the Sunwheel rolls away, the Astrolabe switches off like a hologram.
+            val exit = when (initialState) {
+                GyroVariant.Gyroscope -> fadeOut(tween(260)) + scaleOut(tween(320), targetScale = 1.35f)
+                GyroVariant.Eclipse -> fadeOut(tween(280)) + scaleOut(tween(300), targetScale = 0.4f)
+                GyroVariant.Sunwheel -> fadeOut(tween(340)) + slideOutHorizontally(tween(380)) { it / 3 }
+                GyroVariant.Astrolabe -> fadeOut(tween(420))
+            }
+            // Unclipped: an outgoing sculpture may grow or roll past its box on the way out.
             (enter togetherWith exit).using(SizeTransform(clip = false))
         },
         contentAlignment = Alignment.Center,

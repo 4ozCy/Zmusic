@@ -36,6 +36,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,7 +67,7 @@ import com.zmusic.app.ui.components.AmbientAudioShaderBackground
 import com.zmusic.app.ui.components.DockDestination
 import com.zmusic.app.ui.components.FloatingChrome
 import com.zmusic.app.ui.components.FloatingGlassNavAndMiniPlayer
-import com.zmusic.app.ui.components.GyroVariant
+import com.zmusic.app.ui.components.GyroDeck
 import com.zmusic.app.ui.components.LocalAudioTracker
 import com.zmusic.app.ui.components.LocalGyroVariant
 import com.zmusic.app.ui.components.rememberAudioFrequencyTracker
@@ -80,6 +81,7 @@ import com.zmusic.app.ui.nowplaying.SheetSpring
 import com.zmusic.app.ui.theme.ZmusicTheme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
+import kotlinx.coroutines.delay
 
 private val AUDIO_PERMISSION = if (Build.VERSION.SDK_INT >= 33) {
     Manifest.permission.READ_MEDIA_AUDIO
@@ -98,6 +100,11 @@ private const val BUGS_ROUTE = "bugs"
 
 private const val UI_PREFS = "zmusic_ui"
 private const val KEY_CAPTURE_ASKED = "capture_permission_asked"
+private const val KEY_GYRO_DECK = "gyro_deck"
+private const val KEY_GYRO_SONG = "gyro_deck_song"
+
+/** How long a song change settles before it deals a new sculpture. Too short to see. */
+private const val DEAL_SETTLE_MS = 150L
 
 private fun Context.hasPermission(permission: String) =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
@@ -143,18 +150,31 @@ fun ZmusicRoot(container: AppContainer) {
     ZmusicTheme {
         // The single tracker every live visual draws from.
         val tracker = rememberAudioFrequencyTracker(playing = playerState.isPlaying, captureAllowed = captureAllowed)
-        // Which sculpture Now Playing shows. One is drawn at launch and each new song draws
-        // another, never the same twice running. Saved, so turning the screen does not reshuffle it.
-        var variant by rememberSaveable { mutableStateOf(GyroVariant.next(null)) }
-        var variantSong by rememberSaveable { mutableStateOf<String?>(null) }
+        // Which sculpture Now Playing shows: the top card of a shuffled deck of all four. Each song
+        // that starts deals the next card, so every sculpture shows once in any four songs and never
+        // twice running. The deck and the song that dealt its card are kept on disk, so reopening the
+        // app carries on where it left off instead of starting a new, unfair shuffle.
+        val prefs = remember(context) { context.getSharedPreferences(UI_PREFS, Context.MODE_PRIVATE) }
+        var deck by remember { mutableStateOf(GyroDeck.restore(prefs.getString(KEY_GYRO_DECK, null))) }
+        var dealtFor by remember { mutableStateOf<String?>(prefs.getString(KEY_GYRO_SONG, null)) }
+        // The player's song-start count when the card was dealt. -1: not seen since the app opened.
+        var dealtAt by rememberSaveable { mutableIntStateOf(-1) }
         val song = playerState.mediaId
-        LaunchedEffect(song) {
-            if (song == null || song == variantSong) return@LaunchedEffect
-            // The first song keeps the sculpture drawn at launch.
-            if (variantSong != null) variant = GyroVariant.next(variant)
-            variantSong = song
+        val starts = playerState.songStarts
+        LaunchedEffect(song, starts) {
+            if (song == null) return@LaunchedEffect
+            // A song change can arrive as two quick updates (new queue, then the song itself).
+            // Waiting a moment lets the second cancel the first, so one change deals one card.
+            delay(DEAL_SETTLE_MS)
+            // The same song carrying on (the one that dealt the card, with no new start since) keeps
+            // its card. The very first song ever keeps the deck's opening card.
+            val carryingOn = song == dealtFor && (dealtAt < 0 || starts == dealtAt)
+            if (!carryingOn && dealtFor != null) deck = deck.next()
+            dealtFor = song
+            dealtAt = starts
+            prefs.edit().putString(KEY_GYRO_DECK, deck.save()).putString(KEY_GYRO_SONG, song).apply()
         }
-        CompositionLocalProvider(LocalAudioTracker provides tracker, LocalGyroVariant provides variant) {
+        CompositionLocalProvider(LocalAudioTracker provides tracker, LocalGyroVariant provides deck.current) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 if (!granted) {
                     PermissionScreen(

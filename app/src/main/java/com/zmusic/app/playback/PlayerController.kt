@@ -62,9 +62,13 @@ class PlayerController(context: Context) {
         }
     }.distinctUntilChanged()
 
+    /** Song starts seen so far: see [PlayerUiState.songStarts]. */
+    private var songStarts = 0
+
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             val c = controller ?: return
+            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) songStarts++
             sync(c, rebuildQueue = events.contains(Player.EVENT_TIMELINE_CHANGED))
         }
 
@@ -141,6 +145,7 @@ class PlayerController(context: Context) {
             durationMs = c.duration.coerceAtLeast(0L),
             queue = queue,
             currentIndex = c.currentMediaItemIndex,
+            songStarts = songStarts,
         )
     }
 

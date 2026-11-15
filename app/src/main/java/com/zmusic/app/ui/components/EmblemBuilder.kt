@@ -1,11 +1,11 @@
 package com.zmusic.app.ui.components
 
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /** A float list that grows while an emblem is laid out, then is frozen with [trim]. */
 internal class Floats {
@@ -48,12 +48,15 @@ internal object Emblem {
     const val LINE = 1
     const val DOT = 2
 
-    /** Kinds of material: one colour that gives off its own light, or three tones lit from the upper left. */
+    /**
+     * Kinds of material: one colour that gives off its own light, or cel shading, where a facet
+     * takes one of two flat tones by which way it faces, the way an anime gem is painted.
+     */
     const val FLAT = 0f
-    const val LIT = 1f
+    const val CEL = 1f
 
-    /** Floats per material: kind, alpha, then shadow, base and light as RGB, then how strong its sheen is. */
-    const val MATERIAL = 12
+    /** Floats per material: kind, alpha, then two RGB colours (a cel facet's shadow and light; a flat colour twice). */
+    const val MATERIAL = 8
 
     /** Floats per halo class: RGB, width, alpha. */
     const val GLOW = 5
@@ -69,6 +72,9 @@ internal object Emblem {
 
     /** Floats per planet: the radius it runs round, its speed, where it starts. */
     const val RIDER = 3
+
+    /** Floats per swelling item: its band (0..1 across the spectrum), how much the band swells it. */
+    const val PULSE = 2
 
     // Layers. 0 is always the stage, which only the camera moves.
     const val E_STAR = 1
@@ -88,7 +94,10 @@ internal object Emblem {
     /** The star's afterimages: layers S_GHOST until S_GHOST + S_GHOSTS, nearest the star first. */
     const val S_GHOST = 6
     const val S_GHOSTS = 3
-    const val S_LAYERS = 9
+
+    /** The level meter between the rings. It never turns, so its bottom stays at the bottom. */
+    const val S_GAUGE = 9
+    const val S_LAYERS = 10
 
     const val A_MAIN = 1
     const val A_FIGURE = 2
@@ -121,7 +130,7 @@ internal object Emblem {
  * and dots. Every piece belongs to a layer, a rigid body that [EmblemModel] turns each frame, and
  * is described in that layer's own space: x right, y down, z out of the layer's face. Some
  * vertices also carry an animation of their own: the spectrum slides them ([dyn]), they sway
- * ([sway]) or they run round a circle ([rider]).
+ * ([sway]) or they run round a circle ([rider]); some dots swell with the spectrum ([pulse]).
  *
  * Small sizes ([fine] false) leave out whatever would not read at 44dp: runes, thorns, gauge
  * ticks, sparks, afterimages and the fine inner outlines.
@@ -160,6 +169,10 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
     val riderVertex = Ints()
     val rider = Floats()
 
+    /** Items that swell with the spectrum. */
+    val pulseItem = Ints()
+    val pulse = Floats()
+
     /** Sparks: one vertex and one dot each, starting at [moteVertex] and [moteItem]. */
     val mote = Floats()
     var moteVertex = 0
@@ -189,15 +202,17 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
     /**
      * A crimson compass star with a ridge down every blade, flames curling round a dark core
      * whose rim is a ring of ice shards, a broken silver ring carrying four faceted compass
-     * points, and a crown of thorns. Embers fall into the core.
+     * points, a dotted ring that swells with the spectrum, and a flat ring of thorns. Everything
+     * faceted is cel-shaded in two flat tones. Embers fall into the core.
      */
     private fun eclipse() {
         layers = Emblem.E_LAYERS
-        val blade = lit(0.36f, 0.01f, 0.06f, 0.90f, 0.06f, 0.15f, 1.00f, 0.30f, 0.30f, sheen = 0.35f)
+        val blade = cel(0.40f, 0.01f, 0.07f, 1.00f, 0.16f, 0.24f)
         val neon = flat(1.00f, 0.13f, 0.22f)
-        val silver = lit(0.34f, 0.36f, 0.50f, 0.80f, 0.83f, 0.93f, 1.00f, 1.00f, 1.00f)
+        val silver = cel(0.38f, 0.40f, 0.55f, 0.97f, 0.98f, 1.00f)
         val white = flat(0.95f, 0.97f, 1.00f)
-        val steel = lit(0.14f, 0.14f, 0.20f, 0.42f, 0.44f, 0.56f, 0.82f, 0.86f, 0.96f)
+        val steel = cel(0.10f, 0.10f, 0.15f, 0.55f, 0.58f, 0.70f)
+        val pearl = flat(0.72f, 0.76f, 0.92f)
         val dark = flat(0.025f, 0.03f, 0.10f)
         val ice = flat(0.80f, 0.91f, 1.00f)
         val wire = flat(0.50f, 0.52f, 0.64f)
@@ -277,13 +292,12 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
             if (fine) poly(white, v(1.07f, 0f, 0.052f), v(1.0f, 0.032f, 0.052f), v(0.93f, 0f, 0.052f), v(1.0f, -0.032f, 0.052f), bias = 0.02f)
         }
         if (fine) {
-            // The dotted circle outside the ring: each dot grows into a tick with its band.
-            val ticks = 64
-            for (k in 0 until ticks) {
-                place(Emblem.E_SILVER, (k + 0.5f) * TWO_PI / ticks)
-                val end = v(1.128f, 0f)
-                line(wire, 1.3f, v(1.12f, 0f), end)
-                dynamic(end, mirror(k, ticks), 0.15f)
+            // The dotted circle outside the ring. The spectrum runs once round it, and each dot
+            // swells with its band: bass on the right, treble just above it.
+            val dots = 48
+            for (k in 0 until dots) {
+                place(Emblem.E_SILVER, (k + 0.5f) * TWO_PI / dots)
+                swell(dot(pearl, 1.3f, v(1.125f, 0f)), k / (dots - 1f), 1.4f)
             }
         }
 
@@ -295,22 +309,27 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
             for (k in 0 until thorns) {
                 place(Emblem.E_THORN, k * TWO_PI / thorns)
                 val out = if (k % 2 == 0) 1f else -1f
-                poly(steel, v(0.882f, -0.05f), v(0.882f, 0.05f), v(0.882f + 0.17f * out, 0.09f * out, 0.04f * out))
+                val tip = v(0.882f + 0.17f * out, 0.09f * out, 0.04f * out)
+                poly(steel, v(0.882f, -0.05f), v(0.882f, 0.05f), tip)
+                // The thorns bite: the bass keeps them twitching and a kick snaps them out further.
+                dynamic(tip, 0f, 0.04f, dirX * out, dirY * out, 0f, kick = 0.10f)
             }
         }
         if (fine) motes(Emblem.E_MOTES, ember, 22, 1.10f, 1.65f, 0.25f, 1.0f, 2.2f)
     }
 
     /**
-     * Gold neon. A solid three-armed star spins at the centre of a double ring, trailing
-     * afterimages; three spear heads and three pairs of leaves stand between them, drawn in
-     * outline over a wash of gold glass. The spears strain outward with the bass and the leaves sway.
+     * A gold neon sign, flat-lit: no facet takes any shading. A solid three-armed star with a
+     * white-hot filament down each arm spins at the centre of a double ring, trailing afterimages;
+     * three spear heads and three pairs of leaves stand round it, drawn in neon over a wash of gold
+     * glass. A level meter sits in the gap between the rings. The spears strain outward with the
+     * bass and the leaves sway.
      */
     private fun sunwheel() {
         layers = Emblem.S_LAYERS
         val gold = flat(1.00f, 0.88f, 0.36f)
-        val metal = lit(0.58f, 0.34f, 0.02f, 1.00f, 0.78f, 0.12f, 1.00f, 0.97f, 0.72f)
-        val glass = lit(0.62f, 0.36f, 0.03f, 1.00f, 0.72f, 0.10f, 1.00f, 0.88f, 0.40f, alpha = 0.30f, sheen = 0f)
+        val metal = flat(1.00f, 0.80f, 0.20f)
+        val glass = flat(1.00f, 0.72f, 0.12f, alpha = 0.22f)
         val hot = flat(1.00f, 0.97f, 0.80f)
         val dim = flat(0.86f, 0.62f, 0.16f)
         val spark = flat(1.00f, 0.86f, 0.46f)
@@ -351,30 +370,36 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
             leaf(gold, glass, hot, 0.88f, 1.32f, 0.078f, amber, phase = k * 2.1f + 1.3f)
         }
 
-        // The double ring, with a gauge in the gap: the spectrum, as ticks hanging off the outer one.
+        // The double ring. Its two rings turn against each other.
         place(Emblem.S_OUTER)
         circle(gold, 2.2f, 1.0f, if (fine) 96 else 48, chunks = 12, glow = amber)
+        place(Emblem.S_INNER)
         circle(gold, 1.8f, 0.89f, if (fine) 96 else 48, chunks = 12, glow = amber)
         if (fine) {
-            val ticks = 60
-            for (k in 0 until ticks) {
-                place(Emblem.S_OUTER, (k + 0.5f) * TWO_PI / ticks)
-                val end = v(0.966f, 0f)
-                line(dim, 1.3f, v(0.984f, 0f), end)
-                dynamic(end, mirror(k, ticks), -0.055f)
+            // A level meter in the gap: segments that light from the bottom up both sides. Each is
+            // tagged with how far up it sits, 0 at the bottom to 1 at the top.
+            val segments = 60
+            val pi = PI.toFloat()
+            for (k in 0 until segments) {
+                val a = (k + 0.5f) * TWO_PI / segments
+                var fromBottom = a - HALF_PI
+                if (fromBottom > pi) fromBottom -= TWO_PI
+                if (fromBottom < -pi) fromBottom += TWO_PI
+                place(Emblem.S_GAUGE, a)
+                nextTag = abs(fromBottom) / pi
+                line(dim, 1.5f, v(0.984f, 0f), v(0.962f, 0f))
             }
+            nextTag = Float.NaN
         }
-        // A third, thinner ring inside them, tipped over and circling like a coin about to settle.
-        place(Emblem.S_INNER)
-        circle(gold, 1.6f, 0.78f, if (fine) 80 else 40, chunks = 10, glow = amber)
 
         for (k in 0 until 3) {
-            // One arm of the star: two facets falling away from a raised centre.
+            // One arm of the star: two halves meeting at a raised centre, and a white-hot filament down its spine.
             place(Emblem.S_STAR, k * THIRD + SIXTH)
             val centre = v(0f, 0f, 0.11f)
             for (side in -1..1 step 2) {
                 poly(metal, *curve(0.56f, 0f, 0.20f, 0.045f * side, 0.06f, 0.104f * side, 6), centre, glow = amber)
             }
+            if (fine) line(hot, 1.3f, v(0.07f, 0f, 0.115f), v(0.44f, 0f, 0.115f), bias = 0.02f)
         }
         if (fine) {
             // Afterimages of the star. The model swings them round behind its spin.
@@ -392,9 +417,11 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
     }
 
     /**
-     * Pale line work. A ruled disc with a band of runes and three dials riding its rim, two
-     * smaller discs floating off-centre in front of and behind it, a triangle and three long
-     * chords, two planets on tilted orbits round a starburst, and a slanted ring of gold dust.
+     * Pale engraved line work on flat plates, which the model stacks in depth like a hologram. A
+     * ruled disc with a band of runes, a degree scale and three dials riding its rim; two smaller
+     * discs in front of and behind it; a triangle and three long chords; two planets, each on a
+     * flat orbit of its own plate; a starburst with a crosshair over the axle that runs through
+     * the stack; and gold dust drifting between the plates.
      */
     private fun astrolabe() {
         layers = Emblem.A_LAYERS
@@ -423,13 +450,11 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
                 glyph((k * 5 + 2) % GLYPHS.size, 0.95f, 0f, 0.030f, 0.036f, pale, 0.9f)
             }
             nextTag = Float.NaN
-            // The degree scale, standing on the inner circle: the spectrum.
+            // The degree scale, engraved and still: a long mark every sixth.
             val ticks = 72
             for (k in 0 until ticks) {
-                place(Emblem.A_MAIN, (k + 0.5f) * TWO_PI / ticks)
-                val end = v(0.765f, 0f)
-                line(dim, 1.2f, v(0.745f, 0f), end)
-                dynamic(end, mirror(k, ticks), 0.115f)
+                place(Emblem.A_MAIN, k * TWO_PI / ticks)
+                line(dim, 1.1f, v(0.745f, 0f), v(if (k % 6 == 0) 0.795f else 0.765f, 0f))
             }
         }
 
@@ -497,7 +522,7 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
             glyph(5, 0f, 0f, 0.07f, 0.07f, pale, 1.0f)
         }
 
-        // Two planets, each running round its own tilted orbit.
+        // Two planets, each running round a flat orbit on its own plate.
         place(Emblem.A_ORBIT_A)
         circle(violet, 1.6f, 0.62f, if (fine) 64 else 32, chunks = 8, glow = purple)
         planet(Emblem.A_ORBIT_A, warm, 0.62f, 0.9f, 0f, 3.4f)
@@ -505,20 +530,26 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
         circle(violet, 1.3f, 0.46f, if (fine) 56 else 28, chunks = 7, glow = purple)
         planet(Emblem.A_ORBIT_B, mint, 0.46f, -1.4f, 2.2f, 2.8f)
 
-        // The starburst: rays spread evenly over a sphere, each one flickering with its own band.
+        // The starburst on the top plate: rays in the plate's face, each flickering with a band of its own.
         val rays = if (fine) 22 else 10
         for (k in 0 until rays) {
-            val dz = 1f - 2f * (k + 0.5f) / rays
-            val across = sqrt(1f - dz * dz)
-            val a = k * 2.39996f
-            val dx = across * cos(a)
-            val dy = across * sin(a)
+            val a = (k + 0.4f * (Emblem.scatter(k * 5 + 3) - 0.5f)) * TWO_PI / rays
+            val dx = cos(a)
+            val dy = sin(a)
             val length = 0.14f + 0.20f * Emblem.scatter(k * 5 + 1)
-            val end = vertex(Emblem.A_BURST, dx * length, dy * length, dz * length)
-            line(warm, 1.1f, vertex(Emblem.A_BURST, dx * 0.04f, dy * 0.04f, dz * 0.04f), end, glow = orange)
-            dynamic(end, Emblem.scatter(k * 5 + 2), 0.42f, dx, dy, dz)
+            val end = vertex(Emblem.A_BURST, dx * length, dy * length, 0f)
+            line(warm, 1.1f, vertex(Emblem.A_BURST, dx * 0.05f, dy * 0.05f, 0f), end, glow = orange)
+            dynamic(end, Emblem.scatter(k * 5 + 2), 0.30f, dx, dy, 0f)
         }
-        if (fine) motes(Emblem.A_DUST, dust, 56, 0.70f, 1.48f, 0.20f, 0.9f, 2.6f)
+        if (fine) {
+            // A crosshair over the burst, and the axle running from the back plate up to it.
+            for (k in 0 until 8) {
+                place(Emblem.A_BURST, k * TWO_PI / 8)
+                line(pale, 0.9f, v(0.06f, 0f), v(if (k % 2 == 0) 0.30f else 0.16f, 0f))
+            }
+            line(dim, 0.9f, vertex(Emblem.A_FIGURE, 0f, 0f, 0f), vertex(Emblem.A_BURST, 0f, 0f, 0f))
+            motes(Emblem.A_DUST, dust, 56, 0.70f, 1.48f, 0.25f, 0.9f, 2.6f)
+        }
     }
 
     // ---- shapes ----
@@ -670,6 +701,16 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
         }
     }
 
+    /** A dot of [radius] at [vertex]. Returns its item. */
+    private fun dot(m: Int, radius: Float, vertex: Int): Int = item(Emblem.DOT, m, radius, 0, 0f, intArrayOf(vertex))
+
+    /** Lets the spectrum swell item [target]: its width or radius grows by [gain] times the level of [band] (0..1 across the spectrum). */
+    private fun swell(target: Int, band: Float, gain: Float) {
+        pulseItem.add(target)
+        pulse.add(band)
+        pulse.add(gain)
+    }
+
     /** A planet: a dot in [layer] that the model runs round a circle of [radius], [speed] radians a second at full drive, from [phase]. */
     private fun planet(layer: Int, m: Int, radius: Float, speed: Float, phase: Float, dotSize: Float) {
         val dot = vertex(layer, radius * cos(phase), radius * sin(phase), 0f)
@@ -733,15 +774,11 @@ internal class EmblemBuilder(variant: GyroVariant, private val fine: Boolean) {
     /** Where mark [k] of [n] sits in the spectrum, 0..1: low bands at the start of the circle, mirrored on its second half. */
     private fun mirror(k: Int, n: Int): Float = (if (k < n / 2) k else n - k) / (n / 2f)
 
-    private fun lit(
-        sr: Float, sg: Float, sb: Float,
-        br: Float, bg: Float, bb: Float,
-        lr: Float, lg: Float, lb: Float,
-        alpha: Float = 1f,
-        sheen: Float = 1f,
-    ): Int = material(Emblem.LIT, alpha, sr, sg, sb, br, bg, bb, lr, lg, lb, sheen)
+    /** A cel-shaded material: facets turned from the light take the shadow tone, the rest the light one. */
+    private fun cel(sr: Float, sg: Float, sb: Float, lr: Float, lg: Float, lb: Float): Int =
+        material(Emblem.CEL, 1f, sr, sg, sb, lr, lg, lb)
 
-    private fun flat(r: Float, g: Float, b: Float): Int = material(Emblem.FLAT, 1f, r, g, b, r, g, b, r, g, b, 0f)
+    private fun flat(r: Float, g: Float, b: Float, alpha: Float = 1f): Int = material(Emblem.FLAT, alpha, r, g, b, r, g, b)
 
     private fun material(vararg values: Float): Int {
         for (value in values) materials.add(value)
