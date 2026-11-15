@@ -8,7 +8,7 @@ Offline-first Android music player. Kotlin, Jetpack Compose (Material 3), Media3
 
 ## Design
 
-Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#070709`) sits in front of a black hole whose ring turns while a song plays; a few panes of smoked frosted glass float in front of it. The app is dark-only on purpose.
+Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#070709`) sits in front of a black hole whose disc turns while a song plays, with an astronaut drifting past; a few panes of smoked frosted glass float in front of it. The app is dark-only on purpose.
 
 - Palette: obsidian `#070709`, smoked glass `#14151A`. All type is white: full strength for titles, 76% for secondary lines, 58% for counts and durations. Amber is the one accent (current song, primary action). Indigo only ever appears as light.
 - No album covers and no lyrics anywhere. Type is Manrope; timestamps, counts and index numerals are JetBrains Mono.
@@ -22,7 +22,10 @@ Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#0707
   - **Sunwheel**: a gold neon sign, flat-lit. The star spins like a pinwheel, faster as the music gets louder, with afterimages and sparks flying off its tips; the spin throws the spears and leaves outward, the leaves sway, the two rings turn against each other, and the neon buzzes now and then. A level meter between the rings fills from the bottom up both sides, with a peak that hangs. Its depth is a flip: every few seconds a kick turns the whole sign over. A kick also sends rays out of the core. It arrives spinning in a blur and leaves by rolling away.
   - **Astrolabe**: pale engraved plates stacked in depth like a hologram. The viewpoint drifts so the plates slide across one another, and the stack breathes apart with the bass. The disc ticks like a second hand with geared dials, planets run round flat orbits on their own plates, a light reads along the runes, starburst rays flicker with the spectrum, gold dust drifts between the plates, and a comet crosses behind now and then. A kick sends ripples across the disc and joins dust into a constellation. It arrives by drawing itself in as its plates part, and leaves by switching off.
 - Every sculpture follows the music in its own way: the gyroscope turns with the mids, the Eclipse steps on the kicks, the Sunwheel spins with the loudness, the Astrolabe ticks with the tempo of the mids.
-- The backdrop is a scene: a black hole with a tilted accretion disc, four planets orbiting in the disc's plane, stars that bend around the hole, and a shooting star every 11 seconds. The disc spins only while music plays and coasts to a stop on pause; bass brightens it.
+- The backdrop is a scene: a black hole seen nearly edge-on, four planets orbiting in its disc's plane, a shooting star every 11 seconds, and an astronaut drifting in front of it all. The disc spins only while music plays and coasts to a stop on pause; bass brightens it.
+  - **The hole** bends light the way a real one does. The far side of the disc is lifted up over the top of the shadow and its underside shows as a thinner arc beneath it, with a thin photon ring round the shadow. These come from tracing where each ray crosses the disc after the hole's gravity has bent it (an analytic fit to Schwarzschild orbits, no ray marching). The gas glows as a black body, hotter further in, and the side orbiting toward you is blue-shifted and much brighter. Inner gas laps outer gas, so its streaks shear. Stars near the hole are pushed outward and stretched into arcs.
+  - **The planets**: a cratered dusty rock, an ice giant with bands and a haze that lights up all round when the disc is behind it, an airless moon with dark plains, and a banded giant with rings, which take the planet's shadow and cast their own across it. All are lit by the disc, so you see their day side when they are behind the hole and a crescent when they swing in front. A planet that passes behind the hole is lensed into an arc.
+  - **The astronaut** drifts slowly through the lower half of the screen, tumbling over every five minutes, limbs and tether swaying. It is backlit by the disc: mostly in shadow, with a warm rim on every edge that faces the hole. Its gold visor catches the disc, and the light on its chest unit pulses with the bass.
 - The current song's row lights up with a wash of amber, screen titles carry a bar of light that stretches with the bass, and the dock's selected tab has an amber filament that does the same.
 - Honours the system "remove animations" setting (decorative motion stops).
 
@@ -34,7 +37,7 @@ Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#0707
 2. `LevelAudioProcessor`, which measures a 12-band spectrum from ExoPlayer's PCM buffers. No permission needed, so denying the prompt costs nothing but a little sync accuracy (16-bit PCM only; it can lead the sound by the audio buffer).
 3. A slow synthetic "breathing" wave while paused, so the UI never looks frozen.
 
-The backdrop is an AGSL `RuntimeShader` on Android 13+ and an equivalent Canvas gradient version below that.
+The backdrop is an AGSL `RuntimeShader` on Android 13+ and a simpler Canvas gradient version below that (same hole, planets and astronaut, no lensing). The astronaut is a second, small shader drawn only in a square round the figure.
 
 ### Bug log
 
