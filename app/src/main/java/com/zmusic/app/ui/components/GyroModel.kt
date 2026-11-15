@@ -99,21 +99,14 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
     private var drive = 0.30f
     private var lastSeconds = -1f
 
-    // Kick detector: bass against its own slow average.
-    private var bassSlow = 0f
-    private var waveAge = -1f
+    // Kicks, and what they set off besides the lightning. Small sizes never listen for them.
+    private val fx = ImpactFx(if (halo) ImpactFx.FOCUS else 0)
 
     /**
-     * The skill going off. A kick sets it between 0.45 and 1 by how hard the kick lands, and it
-     * falls back to 0 in about half a second. It drives the lightning, the focus lines, the core
-     * flare and the flash of the summoning circle. Kicks closer together than [IMPACT_GAP] leave
-     * it alone, which keeps the flashing under three a second.
+     * The skill going off: see [ImpactFx.impact]. It drives the lightning, the focus lines, the
+     * core flare and the flash of the summoning circle.
      */
-    var impact = 0f
-        private set
-    private var sinceImpact = 10f
-    private var armed = true
-    private var strike = 0
+    val impact: Float get() = fx.impact
 
     // Aura: streams of light winding up round the sculpture, and sparks rising between them.
     private val streamPhase = FloatArray(STREAMS) { it * 0.41f % 1f }
@@ -164,10 +157,9 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
      * Focus lines: thin wedges pointing in at the sculpture from the edge of the frame, one
      * triangle (6 floats) each in [focusXY]. [focusAlpha] zero means "none showing".
      */
-    val focusLines = if (halo) FOCUS else 0
-    val focusXY = FloatArray(focusLines * 6)
-    var focusAlpha = 0f
-        private set
+    val focusLines: Int get() = fx.focusLines
+    val focusXY: FloatArray get() = fx.focusXY
+    val focusAlpha: Float get() = fx.focusAlpha
 
     // Scratch matrices, row-major 3x3.
     private val tilt = FloatArray(9)
@@ -224,9 +216,6 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         this.unit = unit
 
         // Integrate the gimbal angles so a change in speed never makes a hoop jump.
-        // First frame: start the kick detector's average at the level it finds, so whatever is
-        // already playing does not count as a kick.
-        if (lastSeconds < 0f) bassSlow = bass
         var dt = if (lastSeconds < 0f) 0f else t - lastSeconds
         if (dt < 0f || dt > 0.1f) dt = 0.016f
         lastSeconds = t
@@ -256,7 +245,7 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
             aura(dt, bass, tickWidth)
             sigil(dt, bass)
             lightning(dt)
-            focus(frameCx, frameCy, frameHalfWidth, frameHalfHeight)
+            fx.focus(frameCx, frameCy, frameHalfWidth, frameHalfHeight)
         }
 
         depth[coreIndex] = 0f
@@ -444,50 +433,28 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         }
     }
 
-    /**
-     * Listens for kicks. Every one restarts the shockwave. One that arrives on a rising edge, and
-     * at least [IMPACT_GAP] after the last, also sets off [impact] and picks where the lightning lands.
-     */
+    /** Listens for kicks. One that sets off an impact also picks where the lightning lands. */
     private fun kick(bass: Float, dt: Float) {
-        bassSlow += (bass - bassSlow) * min1(dt * 2.5f)
-        val jump = bass - bassSlow
-        impact -= impact * min1(dt * 6f)
-        if (impact < 0.004f) impact = 0f
-        if (sinceImpact < 10f) sinceImpact += dt
-        if (waveAge >= 0f) {
-            waveAge += dt
-            if (waveAge > WAVE_SECONDS) waveAge = -1f
-        }
-        if (jump < 0.08f) armed = true
-        if (jump <= 0.13f) return
-        if (waveAge < 0f || waveAge > 0.28f) waveAge = 0f
-        val strength = 0.45f + 0.55f * ((jump - 0.13f) / 0.20f).coerceIn(0f, 1f)
-        if (armed && sinceImpact > IMPACT_GAP) {
-            armed = false
-            sinceImpact = 0f
-            strike++
-            impact = strength
+        val struck = fx.listen(bass, dt)
+        if (struck) {
             boltAge = 0f
-            boltPeak = strength
             for (b in 0 until bolts) {
                 boltRing[b] = b % RINGS
-                boltSeg[b] = (rand(strike * 31 + b * 7) * segments).toInt().coerceAtMost(segments - 1)
+                boltSeg[b] = (rand(fx.strike * 31 + b * 7) * segments).toInt().coerceAtMost(segments - 1)
             }
-        } else if (sinceImpact < IMPACT_RISE && strength > impact) {
-            // The kick is caught as it crosses the threshold, before it peaks: let it keep climbing.
-            impact = strength
-            boltPeak = strength
         }
+        // The lightning is as strong as the impact at its peak, which can come a few frames after it starts.
+        if (struck || (fx.sinceImpact < ImpactFx.RISE && fx.impact > boltPeak)) boltPeak = fx.impact
     }
 
     /** A ring of light thrown outward through the halo plane on every kick. */
     private fun shockwave(tickWidth: Float) {
-        if (waveAge < 0f) {
+        if (fx.waveAge < 0f) {
             loopNearAlpha[1] = 0f
             loopFarAlpha[1] = 0f
             return
         }
-        val u = waveAge / WAVE_SECONDS
+        val u = fx.waveAge / ImpactFx.WAVE_SECONDS
         val ease = 1f - (1f - u) * (1f - u)
         loop(1, HALO_RADIUS + 0.10f + 0.62f * ease, (1f - u) * (1f - u) * 0.75f, tickWidth * (1.3f - 0.8f * u))
     }
@@ -660,39 +627,10 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
             for (k in 0 until BOLT_POINTS) {
                 val f = k / (BOLT_POINTS - 1f)
                 // Sideways kink, as a fraction of the bolt's length. None at the core.
-                val kink = if (k == 0) 0f else (rand(strike * 131 + b * 17 + flicker * 7 + k) - 0.5f) * 0.24f
+                val kink = if (k == 0) 0f else (rand(fx.strike * 131 + b * 17 + flicker * 7 + k) - 0.5f) * 0.24f
                 boltXY[at + k * 2] = cx + dx * f - dy * kink
                 boltXY[at + k * 2 + 1] = cy + dy * f + dx * kink
             }
-        }
-    }
-
-    /**
-     * Focus lines round the edge of the frame while [impact] is high. They are redrawn in new
-     * places every 60 ms, the way hand-drawn ones boil from frame to frame.
-     */
-    private fun focus(fx: Float, fy: Float, halfWidth: Float, halfHeight: Float) {
-        val strength = impact * impact
-        if (focusLines == 0 || strength < 0.02f) {
-            focusAlpha = 0f
-            return
-        }
-        focusAlpha = strength * 0.55f
-        val boil = (sinceImpact / 0.06f).toInt()
-        for (i in 0 until focusLines) {
-            val seed = strike * 977 + boil * 131 + i * 13
-            val a = (i + rand(seed)) * TWO_PI / focusLines
-            val c = cos(a)
-            val s = sin(a)
-            // Distance from the frame's centre to its edge in this direction.
-            val edge = min(halfWidth / max(abs(c), 1e-3f), halfHeight / max(abs(s), 1e-3f))
-            val outer = edge * 1.02f
-            val inner = edge * (0.80f + 0.17f * rand(seed + 1))
-            val w = edge * (0.004f + 0.012f * rand(seed + 2))
-            val o = i * 6
-            focusXY[o] = fx + c * outer - s * w; focusXY[o + 1] = fy + s * outer + c * w
-            focusXY[o + 2] = fx + c * outer + s * w; focusXY[o + 3] = fy + s * outer - c * w
-            focusXY[o + 4] = fx + c * inner; focusXY[o + 5] = fy + s * inner
         }
     }
 
@@ -797,18 +735,11 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         /** Unbroken circles (guide circle, shockwave) and the points along each; a multiple of four. */
         const val LOOPS = 2
         const val LOOP = 128
-        const val WAVE_SECONDS = 0.75f
         const val CAMERA = 3.4f
         const val HALO_RADIUS = 1.30f
         const val CIRCLE_RADIUS = 1.245f
         const val DASH_RADIUS = 1.19f
         const val TWO_PI = 6.2831855f
-
-        /** Shortest time between two impacts, in seconds. */
-        const val IMPACT_GAP = 0.36f
-
-        /** How long after it starts an impact may still grow, while the kick is still rising. */
-        const val IMPACT_RISE = 0.10f
 
         /**
          * Height of the summoning circle's plane below the core (y points down). The hoops sweep a
@@ -835,7 +766,6 @@ internal class GyroModel(private val segments: Int, private val halo: Boolean) {
         const val BOLTS = 4
         const val BOLT_POINTS = 9
         const val BOLT_SECONDS = 0.20f
-        const val FOCUS = 44
 
         /** How far the light wraps past the terminator. Softens the shadow side of a hoop. */
         const val WRAP = 0.35f

@@ -3,9 +3,20 @@ package com.zmusic.app.ui.components
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.Build
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -28,9 +39,55 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
+/** The sculpture on stage. The app shell draws a new one at random for every song. */
+val LocalGyroVariant = compositionLocalOf { GyroVariant.Gyroscope }
+
 /**
- * The Now Playing centrepiece, standing where album art would be: an acoustic gyroscope in
- * polished metal, staged like the big skill in an anime going off.
+ * The Now Playing centrepiece, standing where album art would be. It is one of four sculptures
+ * ([GyroVariant]): the gyroscope below, or one of the emblems drawn by [KineticEmblem]. When
+ * [variant] changes, the old sculpture bursts outward and fades. The gyroscope swells up out of
+ * the core; an emblem fades in and plays its own entrance.
+ *
+ * @param halo draw the sculpture at hero size, with everything round it. Turn it off for small
+ *   sizes (mini player, brand mark).
+ * @param segments faces per hoop of the gyroscope. 120 keeps the outline round at hero size; 36
+ *   is plenty below ~64dp.
+ */
+@Composable
+fun KineticGyroscope(
+    modifier: Modifier = Modifier,
+    halo: Boolean = true,
+    segments: Int = 120,
+    variant: GyroVariant = LocalGyroVariant.current,
+) {
+    AnimatedContent(
+        targetState = variant,
+        modifier = modifier,
+        transitionSpec = {
+            // An emblem plays its own entrance (see EmblemModel), so it only needs fading in.
+            val enter = if (targetState == GyroVariant.Gyroscope) {
+                fadeIn(tween(420, delayMillis = 140)) + scaleIn(tween(520, delayMillis = 140), initialScale = 0.55f)
+            } else {
+                fadeIn(tween(200, delayMillis = 120))
+            }
+            val exit = fadeOut(tween(260)) + scaleOut(tween(320), targetScale = 1.35f)
+            // Unclipped: the outgoing sculpture grows past its box on the way out.
+            (enter togetherWith exit).using(SizeTransform(clip = false))
+        },
+        contentAlignment = Alignment.Center,
+        label = "gyro-variant",
+    ) { shown ->
+        if (shown == GyroVariant.Gyroscope) {
+            Gyroscope(Modifier.fillMaxSize(), halo, segments)
+        } else {
+            KineticEmblem(shown, Modifier.fillMaxSize(), fine = halo)
+        }
+    }
+}
+
+/**
+ * [GyroVariant.Gyroscope]: an acoustic gyroscope in polished metal, staged like the big skill in
+ * an anime going off.
  *
  * Three nested hoops, each a real cylindrical band in 3D, gimballed inside one another (outer
  * turns about X, the middle about Y inside the outer's frame, the inner about X inside the
@@ -63,16 +120,10 @@ import kotlin.math.sin
  * nothing (a gradient per halo circle) and issues several hundred small draw ops. It redraws from
  * the tracker's frame tick, never recomposes.
  *
- * @param halo draw everything round the hoops: magic circle, glints, shockwave, summoning circle,
- *   aura and impact. Turn it off for small sizes (mini player, brand mark).
- * @param segments faces per hoop. 120 keeps the outline round at hero size; 36 is plenty below ~64dp.
+ * With [halo] off it draws the hoops, the core and the light behind them, and nothing else.
  */
 @Composable
-fun KineticGyroscope(
-    modifier: Modifier = Modifier,
-    halo: Boolean = true,
-    segments: Int = 120,
-) {
+private fun Gyroscope(modifier: Modifier, halo: Boolean, segments: Int) {
     val tracker = LocalAudioTracker.current
     val model = remember(segments, halo) { GyroModel(segments, halo) }
     Box(
@@ -280,18 +331,21 @@ private fun DrawScope.drawImpact(model: GyroModel, path: Path, glow: Stroke, cor
         drawPath(path, BoltGlow, alpha = 0.55f * model.boltAlpha, style = glow)
         drawPath(path, Color.White, alpha = model.boltAlpha, style = core)
     }
-    if (model.focusAlpha > 0f) {
-        val points = model.focusXY
-        path.reset()
-        for (i in 0 until model.focusLines) {
-            val o = i * 6
-            path.moveTo(points[o], points[o + 1])
-            path.lineTo(points[o + 2], points[o + 3])
-            path.lineTo(points[o + 4], points[o + 5])
-            path.close()
-        }
-        drawPath(path, Color.White, alpha = model.focusAlpha)
+    drawFocusLines(model.focusXY, model.focusLines, model.focusAlpha, path)
+}
+
+/** Focus lines at the frame's edge: [lines] thin wedges, one triangle (6 floats) each in [points]. */
+internal fun DrawScope.drawFocusLines(points: FloatArray, lines: Int, alpha: Float, path: Path) {
+    if (alpha <= 0f) return
+    path.reset()
+    for (i in 0 until lines) {
+        val o = i * 6
+        path.moveTo(points[o], points[o + 1])
+        path.lineTo(points[o + 2], points[o + 3])
+        path.lineTo(points[o + 4], points[o + 5])
+        path.close()
     }
+    drawPath(path, Color.White, alpha = alpha)
 }
 
 /**
@@ -346,7 +400,7 @@ private fun DrawScope.drawCore(star: Path, centre: Offset, unit: Float, bass: Fl
     drawCircle(Color.White, radius = unit * 0.055f * (0.8f + 0.4f * pulse), center = centre)
 }
 
-private fun DrawScope.drawStar(star: Path, at: Offset, radius: Float, degrees: Float, color: Color) {
+internal fun DrawScope.drawStar(star: Path, at: Offset, radius: Float, degrees: Float, color: Color) {
     withTransform({
         translate(at.x, at.y)
         rotate(degrees, pivot = Offset.Zero)
@@ -357,7 +411,7 @@ private fun DrawScope.drawStar(star: Path, at: Offset, radius: Float, degrees: F
 }
 
 /** A unit four-point sparkle: long arms on the axes, pinched to [waist] on the diagonals. */
-private fun starPath(waist: Float): Path = Path().apply {
+internal fun starPath(waist: Float): Path = Path().apply {
     for (k in 0 until 8) {
         val a = k * PI / 4.0
         val r = if (k % 2 == 0) 1f else waist
