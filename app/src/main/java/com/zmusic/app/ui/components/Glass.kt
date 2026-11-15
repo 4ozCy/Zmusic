@@ -25,8 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -179,13 +177,10 @@ fun Modifier.tilt3DOnPress(
         }
 }
 
-/** Warm-to-cool light behind the prominent pill. Dark enough at both ends for white type. */
-private val ProminentFill = Brush.horizontalGradient(listOf(Color(0xFFA8622E), Color(0xFF5A5DC8)))
-
 /**
- * Action pill. The quiet variant is glass; [prominent] is lit from inside (amber running into
- * indigo, with a slow sheen passing over it) and is meant for the single most important action in
- * a group, so use it once. Type is white on both.
+ * Action pill: smoked frosted glass with white type, the same pane as every other button.
+ * [prominent] marks the single most important action in a group by turning its icon amber (the
+ * app's one accent), so use it once.
  */
 @Composable
 fun GlassPill(
@@ -196,38 +191,20 @@ fun GlassPill(
     onClick: () -> Unit,
 ) {
     val content = AppTheme.extended.text
-    val tracker = LocalAudioTracker.current
     Row(
         modifier = modifier
             .pressClick(onClick = onClick)
             .height(48.dp)
-            .then(
-                if (prominent) {
-                    Modifier
-                        .clip(CircleShape)
-                        .background(ProminentFill)
-                        .drawBehind {
-                            tracker.frame.longValue // redraw every frame without recomposing
-                            // A band of light crosses in the first part of each 4.5 s cycle, then rests.
-                            val cycle = (tracker.seconds % 4.5f) / 4.5f
-                            val x = -size.height + (size.width + size.height * 2f) * cycle * 2.4f
-                            drawLine(
-                                color = Color.White,
-                                start = Offset(x, size.height * 1.2f),
-                                end = Offset(x + size.height * 0.6f, -size.height * 0.2f),
-                                strokeWidth = size.height * 0.45f,
-                                alpha = 0.20f,
-                            )
-                        }
-                        .border(1.dp, SpecularEdge, CircleShape)
-                } else {
-                    Modifier.frostedGlassCard(CircleShape)
-                },
-            )
+            .frostedGlassCard(CircleShape)
             .padding(start = 16.dp, end = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(18.dp))
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (prominent) AppTheme.extended.amber else content,
+            modifier = Modifier.size(18.dp),
+        )
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,

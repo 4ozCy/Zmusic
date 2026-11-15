@@ -55,7 +55,7 @@ fun PermissionScreen(denied: Boolean, onAllow: () -> Unit, onOpenSettings: () ->
                     horizontalAlignment = Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    // The one solid control on this screen: it is the single thing to do.
+                    // The one amber icon on this screen: it is the single thing to do.
                     GlassPill("Allow access to music", Icons.Rounded.LibraryMusic, prominent = true, onClick = onAllow)
                     if (denied) {
                         GlassPill("Open app settings", Icons.Rounded.Settings, onClick = onOpenSettings)
