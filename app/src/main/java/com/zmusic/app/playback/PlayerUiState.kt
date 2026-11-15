@@ -21,4 +21,9 @@ data class PlayerUiState(
     val durationMs: Long = 0L,
     val queue: List<QueueEntry> = emptyList(),
     val currentIndex: Int = -1,
+    /**
+     * Goes up by one every time a song starts from the top: the next song, the same song again on
+     * repeat, or a song picked from a list. Lets the UI tell a replay from the same song carrying on.
+     */
+    val songStarts: Int = 0,
 )

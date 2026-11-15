@@ -14,27 +14,33 @@ import kotlin.math.sqrt
  * and [GyroVariant.Astrolabe]): animation state and the per-frame pose / project / shade / sort
  * pass. Plain Kotlin with no Compose or Android types, so it can be exercised off-device.
  *
- * An emblem is a stack of layers, laid out once by [EmblemBuilder]. Each layer is a rigid body;
- * every vertex is rotated by its layer's matrix and projected with a perspective divide, facets
- * are lit by their true normal, and all items are painted far to near. Each emblem moves in its
- * own way and answers a kick with its own effect:
+ * An emblem is a stack of flat layers, laid out once by [EmblemBuilder]. Every vertex is placed
+ * by its layer's pose and projected with a perspective divide, and all items are painted far to
+ * near. None of them moves like the gyroscope: nothing tumbles, nothing is tipped over like a
+ * hoop, and the camera never nods or sways. Each has its own camera, its own way of moving, its
+ * own way of being lit, and its own answer to a kick:
  *
- * - **Eclipse** is heavy clockwork. The star holds still, then ratchets a quarter turn on a kick
- *   (or after a few quiet seconds) and overshoots as it lands; the silver ring clicks a quarter
- *   turn the other way. Flames flicker, embers spiral down into the core, and the crown of thorns
- *   lies tilted round it and tightens on the kick. A kick cuts two crescent slashes across the
- *   emblem ([slashXY]) and shakes it.
- * - **Sunwheel** is a pinwheel. The star spins fast with afterimages trailing behind it and
- *   throws sparks off its arm tips; the leaves sway, the spears strain outward with the bass, and
- *   the gold outlines now and then buzz like a neon sign. A kick sends rays out of the core
- *   ([rayXY]), launches the spears and throws a burst of sparks.
- * - **Astrolabe** keeps time. The disc ticks round like a second hand with its dials geared to
- *   it, two planets run round tilted orbits, a light reads along the band of runes, and a comet
- *   crosses behind now and then. It draws itself in, line by line, when it arrives. A kick sends
- *   ripples out across the disc ([rippleXY]) and joins some of the gold dust into a constellation.
+ * - **Eclipse** faces you flat and moves like heavy clockwork. The star holds still, then ratchets
+ *   a quarter turn on a kick (or after a few quiet seconds) and overshoots as it lands; the flames
+ *   trail it on a looser spring and the silver ring clicks a quarter turn the other way. Its depth
+ *   is a punch: on a kick the star leaps toward you while the ring is knocked back, the thorns
+ *   snap outward, and the whole emblem rolls and shakes. Embers spiral down into the core. Facets
+ *   are cel-shaded in two flat tones. A kick also cuts two crescent slashes across it ([slashXY]).
+ * - **Sunwheel** is a neon sign, flat-lit. The star spins like a pinwheel, fast as the music is
+ *   loud, with afterimages behind it and sparks flying off its tips; spin throws the spears and
+ *   leaves outward, the leaves sway, the two rings turn against each other, a level meter fills
+ *   between them, and the neon now and then buzzes. Its depth is a flip: every few seconds a kick
+ *   turns the whole sign over, a full turn about a line across its face. A kick also sends rays out
+ *   of the core ([rayXY]) and throws a burst of sparks.
+ * - **Astrolabe** is a hologram of engraved plates stacked in depth. The viewpoint drifts in a slow
+ *   loop so the plates slide across one another, and the stack breathes apart with the bass. The
+ *   disc ticks like a second hand with its dials geared to it, planets run round flat orbits on
+ *   their own plates, a light reads along the runes, gold dust drifts between the plates, and a
+ *   comet crosses behind now and then. A kick sends ripples across the disc ([rippleXY]) and joins
+ *   some of the dust into a constellation.
  *
- * Each also has its own entrance: the Eclipse's core opens and its star blooms out of it, the
- * Sunwheel spins up from a blur, the Astrolabe draws itself in.
+ * Each also enters in its own way: the Eclipse's core opens and its star blooms out of it, the
+ * Sunwheel spins up from a blur, the Astrolabe draws itself in line by line as its plates part.
  *
  * View space is x right, y down, z toward the viewer, the same as [GyroModel].
  *
@@ -96,6 +102,11 @@ internal class EmblemModel private constructor(
     private val tagged = (0 until count).filter { !tag[it].isNaN() }.toIntArray()
     private val itemLayer = IntArray(count) { vertexLayer[idx[first[it]]] }
 
+    /** Per item: how much the spectrum swells it this frame, 1 = as built. */
+    private val grow = FloatArray(count) { 1f }
+    private val pulseItem = g.pulseItem.trim()
+    private val pulse = g.pulse.trim()
+
     /** Halo classes: class `c` (1 or more) is stroked [glowWidth]`[c - 1]` pixels wide in [glowArgb]`[c - 1]`. */
     private val glows = g.glows.trim()
     val glowCount = glows.size / Emblem.GLOW
@@ -118,10 +129,6 @@ internal class EmblemModel private constructor(
     private val moteLife = FloatArray(motes) { mote[it * Emblem.MOTE + 3] / TWO_PI }
     private val moteSpawn = FloatArray(motes) { SIXTH + (it % 3) * THIRD }
     private val moteGen = IntArray(motes)
-    private val moteCosTip = FloatArray(motes) { cos(mote[it * Emblem.MOTE + 1]) }
-    private val moteSinTip = FloatArray(motes) { sin(mote[it * Emblem.MOTE + 1]) }
-    private val moteCosNode = FloatArray(motes) { cos(mote[it * Emblem.MOTE + 2]) }
-    private val moteSinNode = FloatArray(motes) { sin(mote[it * Emblem.MOTE + 2]) }
 
     // Per layer: a 3x3 matrix (row-major) and where its centre sits, both in view space.
     private val layout = FloatArray(g.layers * 12)
@@ -165,26 +172,36 @@ internal class EmblemModel private constructor(
         else -> if (fine) 1.52f else 1.14f
     }
 
-    /** The light behind the emblem, as RGB: its colour at the core, and the colour it fades out through. */
+    /** The light behind the emblem, as RGB: its colour at its brightest, and the colour it fades out through. */
     val backdropInner: Int = when (variant) {
-        GyroVariant.Eclipse -> 0xFF1A33
+        GyroVariant.Eclipse -> 0xFF2E45
         GyroVariant.Sunwheel -> 0xFFBF26
         else -> 0xFF9E40
     }
     val backdropOuter: Int = when (variant) {
-        GyroVariant.Eclipse -> 0x800D40
+        GyroVariant.Eclipse -> 0x8C1030
         GyroVariant.Sunwheel -> 0xE6660D
         else -> 0x8C59F2
     }
 
+    // ---- camera ----
+
+    /** The Eclipse's shake, in units. */
+    private var offsetX = 0f
+    private var offsetY = 0f
+
+    /** The Astrolabe's drifting viewpoint: how far across each unit of depth slides. */
+    private var shearX = 0f
+    private var shearY = 0f
+
     // ---- Eclipse ----
     private val starTurn = FloatArray(2)
     private var starGoal = 0f
+    private val flameTurn = FloatArray(2)
     private val ringTurn = FloatArray(2)
     private var ringGoal = 0f
+    private val roll = FloatArray(2)
     private var sinceStep = 0f
-    private var offsetX = 0f
-    private var offsetY = 0f
 
     /**
      * Eclipse: crescent slashes, [slashes] closed outlines of [slashPoints] screen points each,
@@ -201,7 +218,11 @@ internal class EmblemModel private constructor(
     // ---- Sunwheel ----
     private var starAngle = 0f
     private var starSpeed = 0f
-    private var precess = 0f
+    private var flipAge = -1f
+    private var flipAxis = 0f
+    private var sinceFlip = 10f
+    private var meter = 0f
+    private var peak = 0f
 
     /** Sunwheel: rays out of the core on a kick, one triangle (6 floats) each in [rayXY]. [rayAlpha] zero means "none". */
     val rays = if (variant == GyroVariant.Sunwheel && fine) RAYS else 0
@@ -212,6 +233,7 @@ internal class EmblemModel private constructor(
     // ---- Astrolabe ----
     private val mainTurn = FloatArray(2)
     private var mainGoal = 0f
+    private val dialTurn = FloatArray(Emblem.A_DIALS)
     private var tick = 0f
     private var sweep = 0f
     private var revealed = false
@@ -290,14 +312,14 @@ internal class EmblemModel private constructor(
         val struck = fine && fx.listen(bass, dt)
 
         when (variant) {
-            GyroVariant.Eclipse -> eclipse(t, dt, bass, struck)
-            GyroVariant.Sunwheel -> sunwheel(t, dt, bass, struck)
+            GyroVariant.Eclipse -> eclipse(t, dt, bass, mid, struck)
+            GyroVariant.Sunwheel -> sunwheel(t, dt, bass, mid, treble, struck)
             else -> astrolabe(t, dt, bass, treble, struck)
         }
         bend(t, mid)
         spectrum(bands)
         project()
-        shade(bass, treble, lineUnit)
+        shade(bass, lineUnit)
         sortFarToNear()
         burst = when (variant) {
             GyroVariant.Eclipse -> slash(dt, struck)
@@ -313,9 +335,8 @@ internal class EmblemModel private constructor(
 
     // ---- Eclipse ----
 
-    private fun eclipse(t: Float, dt: Float, bass: Float, struck: Boolean) {
+    private fun eclipse(t: Float, dt: Float, bass: Float, mid: Float, struck: Boolean) {
         val impact = fx.impact
-        val turn = drive * dt
         // Clockwork: the star and the ring hold, then step on a kick, or on their own in quiet music.
         sinceStep += dt
         if (struck || sinceStep > STEP_IDLE) {
@@ -325,13 +346,21 @@ internal class EmblemModel private constructor(
         }
         spring(starTurn, starGoal, dt, 90f, 11f)
         spring(ringTurn, ringGoal, dt, 70f, 10f)
-        starGoal = rewind(starTurn, starGoal)
-        ringGoal = rewind(ringTurn, ringGoal)
-        spin(0, -0.45f * turn)
-        spin(1, 0.25f * turn)
-        spin(2, 0.35f * turn)
+        // The flames follow the star on a looser spring, so they trail its step and swing past.
+        spring(flameTurn, starTurn[0], dt, 30f, 5f)
+        val starShift = rewindBy(starGoal)
+        starGoal -= starShift
+        starTurn[0] -= starShift
+        flameTurn[0] -= starShift
+        val ringShift = rewindBy(ringGoal)
+        ringGoal -= ringShift
+        ringTurn[0] -= ringShift
+        spin(0, 0.25f * drive * dt)
 
-        // The kick jolts the whole emblem. The jolt changes direction every 30 ms and dies with the impact.
+        // A kick rolls the whole emblem a few degrees, one way or the other, and it springs back...
+        if (struck) roll[1] += if (Emblem.scatter(fx.strike * 7 + 1) < 0.5f) ROLL_KICK else -ROLL_KICK
+        spring(roll, 0f, dt, 60f, 9f)
+        // ...and shakes it. The jolt changes direction every 30 ms and dies with the impact.
         val jolt = (fx.sinceImpact / 0.03f).toInt()
         val shake = impact * impact * SHAKE
         offsetX = shake * (Emblem.scatter(fx.strike * 31 + jolt * 2) - 0.5f) * 2f
@@ -341,26 +370,21 @@ internal class EmblemModel private constructor(
         val opening = backOut(age / 0.7f)
         val bloom = backOut((age - 0.15f) / 0.7f)
         val settle = easeOut(age / 0.9f)
+        // Depth: on a kick the star leaps toward you and the ring is knocked back.
+        val punch = PUNCH * impact
 
-        rotX(ta, 0.22f + 0.05f * sin(t * 0.21f))
-        rotY(tb, 0.20f * sin(t * 0.27f))
-        mul(ta, tb, stage)
+        rotZ(stage, roll[0])
         set(0, stage, null, 1f)
-        rotZ(body, starTurn[0] + 0.04f * t)
-        set(Emblem.E_STAR, stage, body, bloom * (1f + 0.05f * bass + 0.14f * impact))
+        rotZ(body, starTurn[0])
+        set(Emblem.E_STAR, stage, body, bloom * (1f + 0.04f * bass), lift = punch)
+        rotZ(body, flameTurn[0])
+        set(Emblem.E_HOOKS, stage, body, bloom * (1f + 0.08f * mid), lift = 0.05f + 0.8f * punch)
         rotZ(body, spins[0])
-        set(Emblem.E_HOOKS, stage, body, bloom * (1f + 0.10f * bass), lift = 0.05f)
-        rotZ(body, spins[1])
-        set(Emblem.E_CORE, stage, body, opening * (1f + 0.05f * bass + 0.22f * impact), lift = 0.10f)
+        set(Emblem.E_CORE, stage, body, opening * (1f + 0.05f * bass + 0.12f * impact), lift = 0.10f + 0.6f * punch)
         rotZ(body, ringTurn[0] - HALF_PI * (1f - settle))
-        set(Emblem.E_SILVER, stage, body, (1.25f - 0.25f * settle) * (1f + 0.03f * bass), lift = -0.04f)
-        // The crown lies tilted steeply round the core, turning in its own plane.
-        rotZ(ta, 0.35f)
-        rotX(tb, 1.18f)
-        mul(ta, tb, td)
-        rotZ(ta, spins[2])
-        mul(td, ta, body)
-        set(Emblem.E_THORN, stage, body, (0.6f + 0.4f * settle) * (1f + 0.06f * bass - 0.10f * impact))
+        set(Emblem.E_SILVER, stage, body, (1.25f - 0.25f * settle) * (1f + 0.03f * bass), lift = -0.04f - 0.5f * punch)
+        // The thorns lie flat round the star and tighten on a kick.
+        set(Emblem.E_THORN, stage, null, (0.6f + 0.4f * settle) * (1f + 0.05f * bass - 0.08f * impact), lift = -0.02f - 0.3f * punch)
         set(Emblem.E_MOTES, stage, null, 1f)
 
         // Flames lick: each flickers on its own two beats.
@@ -376,7 +400,7 @@ internal class EmblemModel private constructor(
             moteLife[i] = (moteLife[i] + pull * mote[o + 4]) % 1f
             val life = moteLife[i]
             val radius = CORE_EDGE + (mote[o] - CORE_EDGE) * (1f - life)
-            val a = mote[o + 2] + 2.6f * life * life + spins[1]
+            val a = mote[o + 2] + 2.6f * life * life + spins[0]
             val v = moteVertex + i
             px[v] = radius * cos(a)
             py[v] = radius * sin(a)
@@ -430,27 +454,43 @@ internal class EmblemModel private constructor(
 
     // ---- Sunwheel ----
 
-    private fun sunwheel(t: Float, dt: Float, bass: Float, struck: Boolean) {
+    private fun sunwheel(t: Float, dt: Float, bass: Float, mid: Float, treble: Float, struck: Boolean) {
         val impact = fx.impact
         val turn = drive * dt
         // Entrance: it arrives spinning in a blur and slows to its working speed.
         val spinUp = 1f - clamp01(age / 1.1f)
+        // The louder the music, the faster it spins; a kick whips it on for a moment.
         starSpeed = 1.4f + 2.6f * drive + 4f * impact + 16f * spinUp * spinUp
         starAngle = (starAngle + starSpeed * dt) % TWO_PI
+        val whirl = clamp01((starSpeed - 1.6f) / 3f)
         spin(0, -0.12f * turn)
-        spin(1, 0.10f * turn)
-        spin(2, 0.70f * turn)
-        precess = (precess + dt * (0.6f + 0.5f * drive)) % TWO_PI
+        spin(1, 0.18f * turn)
+        spin(2, -0.30f * turn)
+
+        // Now and then a kick flips the whole sign over: a full turn about a line across its face.
+        sinceFlip += dt
+        if (struck && sinceFlip > FLIP_GAP) {
+            sinceFlip = 0f
+            flipAge = 0f
+            flipAxis = TWO_PI * Emblem.scatter(fx.strike * 11 + 3)
+        }
+        var flip = 0f
+        if (flipAge >= 0f) {
+            flipAge += dt
+            if (flipAge >= FLIP_SECONDS) flipAge = -1f else flip = TWO_PI * smooth(flipAge / FLIP_SECONDS)
+        }
+        rotZ(ta, flipAxis)
+        rotX(tb, flip)
+        mul(ta, tb, td)
+        rotZ(ta, -flipAxis)
+        mul(td, ta, stage)
+        set(0, stage, null, 1f)
 
         val grow = backOut(age / 0.8f)
         val rings = easeOut((age - 0.1f) / 0.8f)
-
-        rotX(ta, 0.46f + 0.05f * sin(t * 0.21f))
-        rotY(tb, 0.30f * sin(t * 0.17f))
-        mul(ta, tb, stage)
-        set(0, stage, null, 1f)
+        // Spin throws the spears and leaves outward.
         rotZ(body, spins[0])
-        set(Emblem.S_COMPASS, stage, body, grow * (1f + 0.04f * bass))
+        set(Emblem.S_COMPASS, stage, body, grow * (1f + 0.04f * bass + 0.06f * whirl))
         val starScale = grow * (1f + 0.10f * bass + 0.12f * impact)
         rotZ(body, starAngle)
         set(Emblem.S_STAR, stage, body, starScale, lift = 0.14f)
@@ -460,25 +500,29 @@ internal class EmblemModel private constructor(
             rotZ(body, starAngle - lag * (k + 1))
             set(Emblem.S_GHOST + k, stage, body, starScale, lift = 0.135f - 0.005f * k)
         }
+        // The two rings turn against each other.
         rotZ(body, spins[1])
         set(Emblem.S_OUTER, stage, body, (0.4f + 0.6f * rings) * (1f + 0.03f * bass))
-        // The inner ring is tipped over, and the way it leans circles round like a settling coin.
-        rotZ(ta, precess)
-        rotX(tb, 0.50f + 0.12f * bass)
-        mul(ta, tb, td)
-        rotZ(ta, spins[2] - precess)
-        mul(td, ta, body)
+        rotZ(body, spins[2])
         set(Emblem.S_INNER, stage, body, (0.4f + 0.6f * rings) * (1f + 0.03f * bass))
+        set(Emblem.S_GAUGE, stage, null, 0.4f + 0.6f * rings)
         set(Emblem.S_MOTES, stage, null, 1f, lift = 0.14f)
 
-        // Afterimages show only at speed. Now and then a gold outline buzzes like a neon sign.
-        val trail = clamp01((starSpeed - 1.6f) / 3f)
+        // The meter climbs fast and falls slowly, and its peak hangs, then drifts down.
+        val loud = clamp01(0.5f * bass + 0.3f * mid + 0.2f * treble)
+        meter += (loud - meter) * min1(dt * (if (loud > meter) 18f else 3f))
+        peak = max(peak - dt * 0.35f, meter)
+
+        // Afterimages show only at speed. Treble makes the neon buzz more often.
         val slot = (t / FLICKER_SLOT).toInt()
+        val buzz = FLICKER * (0.5f + treble)
         for (i in 0 until count) {
             val l = itemLayer[i]
-            fade[i] = if (l >= Emblem.S_GHOST) {
-                GHOST_FADE[l - Emblem.S_GHOST] * trail
-            } else if (fine && glow[i] > 0 && kind[i] == Emblem.LINE && Emblem.scatter(slot * 131 + i * 977) < FLICKER) {
+            fade[i] = if (l >= Emblem.S_GHOST && l < Emblem.S_GHOST + Emblem.S_GHOSTS) {
+                GHOST_FADE[l - Emblem.S_GHOST] * whirl
+            } else if (l == Emblem.S_GAUGE) {
+                gauge(tag[i])
+            } else if (fine && glow[i] > 0 && kind[i] == Emblem.LINE && Emblem.scatter(slot * 131 + i * 977) < buzz) {
                 0.35f
             } else {
                 1f
@@ -487,7 +531,7 @@ internal class EmblemModel private constructor(
 
         // Sparks fly off the arm tips along the spin and curve outward. A kick throws them all at once.
         val rate = dt * (0.8f + 0.5f * drive)
-        val bright = clamp01(0.35f + 0.65f * (starSpeed - 1.4f) / 3f)
+        val bright = clamp01(0.35f + 0.65f * whirl)
         val tip = ARM * starScale
         for (i in 0 until motes) {
             val o = i * Emblem.MOTE
@@ -507,6 +551,14 @@ internal class EmblemModel private constructor(
             pz[v] = 0f
             fade[moteItem + i] = (1f - life).pow(1.5f) * bright
         }
+    }
+
+    /** How lit a meter segment [fromBottom] of the way up is: full below the level, a bright mark at the peak, faint above. */
+    private fun gauge(fromBottom: Float): Float {
+        val lit = smooth((meter - fromBottom) / 0.04f + 0.5f)
+        val off = fromBottom - peak
+        val mark = exp(-(off * off) / 0.0006f)
+        return 0.16f + 0.84f * max(lit, mark)
     }
 
     /** Rays out of the core while the kick lasts, turning with the star and lengthening as they fade. Returns their opacity. */
@@ -547,56 +599,50 @@ internal class EmblemModel private constructor(
             mainGoal += TICK
         }
         if (struck) mainGoal += TICK * 3f
+        val before = mainTurn[0]
         spring(mainTurn, mainGoal, dt, 220f, 17f)
-        mainGoal = rewind(mainTurn, mainGoal)
+        // The dials are geared to the disc: they turn the other way, faster the smaller they are.
+        val moved = mainTurn[0] - before
+        for (k in 0 until Emblem.A_DIALS) {
+            dialTurn[k] = (dialTurn[k] - moved * Emblem.DIAL_RIM / Emblem.DIAL_RADIUS[k]) % TWO_PI
+        }
+        val shift = rewindBy(mainGoal)
+        mainGoal -= shift
+        mainTurn[0] -= shift
         spin(0, -0.10f * turn)
         spin(1, 0.25f * turn)
         spin(2, -0.20f * turn)
+        spin(3, 0.12f * turn)
         sweep = (sweep + dt * (0.9f + 0.9f * drive)) % TWO_PI
 
+        // The viewpoint drifts in a slow loop, so the plates slide across one another like a hologram's layers.
+        shearX = 0.20f * sin(t * 0.37f)
+        shearY = 0.14f * sin(t * 0.29f + 1f)
+        // The stack opens out of a single plate as it arrives, then breathes apart with the bass.
         val settle = easeOut(age / INTRO_A)
-        val grow = (0.92f + 0.08f * settle) * (1f + 0.03f * bass)
+        val spread = settle * (1f + 0.5f * bass + 0.4f * impact)
 
-        rotX(ta, 0.30f + 0.06f * sin(t * 0.19f))
-        rotY(tb, 0.32f * sin(t * 0.23f))
-        mul(ta, tb, stage)
+        identity(stage)
         set(0, stage, null, 1f)
         rotZ(body, mainTurn[0])
-        set(Emblem.A_MAIN, stage, body, grow, keep = held)
-        // The dials ride the disc's rim and turn as gears do, faster the smaller they are.
+        set(Emblem.A_MAIN, stage, body, 1f, keep = held)
+        // The dials ride the disc's rim, a little in front of it.
         for (k in 0 until Emblem.A_DIALS) {
-            rotZ(body, -mainTurn[0] * Emblem.DIAL_RIM / Emblem.DIAL_RADIUS[k])
+            rotZ(body, dialTurn[k])
             val a = Emblem.DIAL_ANGLE[k]
-            set(Emblem.A_DIAL + k, held, body, grow, Emblem.DIAL_RIM * grow * cos(a), Emblem.DIAL_RIM * grow * sin(a), 0f, lift = 0.10f)
+            set(Emblem.A_DIAL + k, held, body, 1f, Emblem.DIAL_RIM * cos(a), Emblem.DIAL_RIM * sin(a), 0f, lift = 0.10f * spread)
         }
         rotZ(body, spins[0])
-        set(Emblem.A_FIGURE, stage, body, grow, lift = -0.10f)
-        // The two small discs bob as if floating.
-        rotX(ta, 0.25f)
-        rotZ(tb, spins[1])
-        mul(ta, tb, body)
-        set(Emblem.A_RING_A, stage, body, 1f + 0.05f * bass, 0.52f, -0.40f + 0.03f * sin(t * 0.8f), 0.22f + 0.05f * sin(t * 1.1f))
-        rotY(ta, -0.22f)
-        rotZ(tb, spins[2])
-        mul(ta, tb, body)
-        set(Emblem.A_RING_B, stage, body, 1f + 0.05f * bass, -0.62f, 0.58f + 0.03f * sin(t * 0.7f + 1f), -0.24f + 0.05f * sin(t * 0.9f + 2f))
-        // Orbits: planes at fixed tilts whose nodes drift round.
-        rotZ(ta, 0.4f + t * 0.05f)
-        rotX(tb, 1.22f)
-        mul(ta, tb, body)
-        set(Emblem.A_ORBIT_A, stage, body, 1f + 0.06f * bass)
-        rotZ(ta, -1.1f - t * 0.04f)
-        rotX(tb, 1.38f)
-        mul(ta, tb, body)
-        set(Emblem.A_ORBIT_B, stage, body, 1f + 0.06f * bass)
-        rotZ(ta, 0.55f)
-        rotX(tb, 1.12f)
-        mul(ta, tb, body)
-        set(Emblem.A_DUST, stage, body, 1f)
-        rotY(ta, t * 0.21f)
-        rotX(tb, t * 0.17f)
-        mul(ta, tb, body)
-        set(Emblem.A_BURST, stage, body, 1f + 0.10f * bass + 0.30f * impact)
+        set(Emblem.A_FIGURE, stage, body, 1f, lift = -0.30f * spread)
+        rotZ(body, spins[1])
+        set(Emblem.A_RING_A, stage, body, 1f + 0.05f * bass, 0.52f, -0.40f, 0.30f * spread + 0.04f * sin(t * 0.9f))
+        rotZ(body, spins[2])
+        set(Emblem.A_RING_B, stage, body, 1f + 0.05f * bass, -0.62f, 0.58f, -0.26f * spread + 0.04f * sin(t * 0.7f + 1f))
+        set(Emblem.A_ORBIT_A, stage, null, 1f, lift = 0.22f * spread)
+        set(Emblem.A_ORBIT_B, stage, null, 1f, lift = -0.18f * spread)
+        set(Emblem.A_DUST, stage, null, 1f)
+        rotZ(body, spins[3])
+        set(Emblem.A_BURST, stage, body, 1f + 0.10f * bass + 0.25f * impact, lift = 0.40f * spread)
 
         // Planets run round their orbits.
         for (k in riderVertex.indices) {
@@ -627,18 +673,15 @@ internal class EmblemModel private constructor(
             revealed = true
         }
 
-        // Gold dust on its slanted ring, each grain on its own orbit.
+        // Gold dust drifts round between the plates, each grain at its own depth.
         val drift = dt * (0.25f + 0.45f * drive)
         for (i in 0 until motes) {
             val o = i * Emblem.MOTE
             moteAngle[i] = (moteAngle[i] + drift * mote[o + 4]) % TWO_PI
-            val along = mote[o] * cos(moteAngle[i])
-            val across = mote[o] * sin(moteAngle[i])
-            val flat = across * moteCosTip[i]
             val v = moteVertex + i
-            px[v] = along * moteCosNode[i] - flat * moteSinNode[i]
-            py[v] = along * moteSinNode[i] + flat * moteCosNode[i]
-            pz[v] = across * moteSinTip[i]
+            px[v] = mote[o] * cos(moteAngle[i])
+            py[v] = mote[o] * sin(moteAngle[i])
+            pz[v] = mote[o + 1] * spread
             fade[moteItem + i] = (0.50f + 0.30f * treble + 0.20f * sin(t * mote[o + 5] + mote[o + 3])).coerceIn(0f, 1f)
         }
     }
@@ -684,7 +727,7 @@ internal class EmblemModel private constructor(
         constellationAlpha = if (constellationAge < 0f) 0f else (1f - clamp01(constellationAge / CONSTELLATION_SECONDS)).pow(1.5f) * 0.8f
     }
 
-    /** Every [COMET_EVERY] seconds a comet crosses behind the disc, from alternate sides. */
+    /** Every [COMET_EVERY] seconds a comet crosses behind the plates, from alternate sides. */
     private fun comet(dt: Float) {
         if (!fine) return
         cometClock += dt
@@ -729,13 +772,11 @@ internal class EmblemModel private constructor(
         }
     }
 
-    /** Takes whole turns off a spring and its goal together once they run large, so the floats keep their precision. Returns the new goal. */
-    private fun rewind(s: FloatArray, goal: Float): Float {
-        if (abs(goal) < REWIND) return goal
-        val by = if (goal > 0f) REWIND else -REWIND
-        s[0] -= by
-        return goal - by
-    }
+    /**
+     * Whole turns to take off a spring's goal (and everything that follows it) once it runs
+     * large, so the floats keep their precision. 0 until then.
+     */
+    private fun rewindBy(goal: Float): Float = if (abs(goal) < REWIND) 0f else if (goal > 0f) REWIND else -REWIND
 
     /**
      * Poses layer [l]: rotated by [rot] inside [parent], scaled, centred at ([tx], [ty], [tz]) in
@@ -782,23 +823,32 @@ internal class EmblemModel private constructor(
         }
     }
 
-    /** Slides the moving marks out along their directions by their bands' levels, and by the impact. */
+    /** Slides the moving marks along their directions by their bands' levels and the impact, and swells the swelling dots. */
     private fun spectrum(bands: FloatArray) {
         val impact = fx.impact
         for (k in dynVertex.indices) {
             val o = k * Emblem.DYN
-            val at = dyn[o + 6] * (bands.size - 1)
-            val low = at.toInt().coerceIn(0, bands.size - 2)
-            val part = at - low
-            val reach = dyn[o + 7] * (bands[low] * (1f - part) + bands[low + 1] * part) + dyn[o + 8] * impact
+            val reach = dyn[o + 7] * level(bands, dyn[o + 6]) + dyn[o + 8] * impact
             val v = dynVertex[k]
             px[v] = dyn[o] + dyn[o + 3] * reach
             py[v] = dyn[o + 1] + dyn[o + 4] * reach
             pz[v] = dyn[o + 2] + dyn[o + 5] * reach
         }
+        for (k in pulseItem.indices) {
+            val o = k * Emblem.PULSE
+            grow[pulseItem[k]] = 1f + pulse[o + 1] * level(bands, pulse[o])
+        }
     }
 
-    /** Rotates every vertex by its layer's pose and applies the perspective divide. */
+    /** The spectrum's level at [position], 0..1 from the lowest band to the highest, blending neighbours. */
+    private fun level(bands: FloatArray, position: Float): Float {
+        val at = position * (bands.size - 1)
+        val low = at.toInt().coerceIn(0, bands.size - 2)
+        val part = at - low
+        return bands[low] * (1f - part) + bands[low + 1] * part
+    }
+
+    /** Places every vertex by its layer's pose, slides it by the viewpoint's drift, and applies the perspective divide. */
     private fun project() {
         for (i in 0 until vertices) {
             val o = vertexLayer[i] * 12
@@ -813,13 +863,14 @@ internal class EmblemModel private constructor(
             wy[i] = vy
             wz[i] = vz
             ws[i] = s
-            sx[i] = cx + (vx + offsetX) * unit * s
-            sy[i] = cy + (vy + offsetY) * unit * s
+            sx[i] = cx + (vx + vz * shearX + offsetX) * unit * s
+            sy[i] = cy + (vy + vz * shearY + offsetY) * unit * s
         }
         val o = coreLayer * 12
-        coreScale = CAMERA / (CAMERA - layout[o + 11])
-        coreX = cx + (layout[o + 9] + offsetX) * unit * coreScale
-        coreY = cy + (layout[o + 10] + offsetY) * unit * coreScale
+        val z = layout[o + 11]
+        coreScale = CAMERA / (CAMERA - z)
+        coreX = cx + (layout[o + 9] + z * shearX + offsetX) * unit * coreScale
+        coreY = cy + (layout[o + 10] + z * shearY + offsetY) * unit * coreScale
     }
 
     /** One point of layer [l]'s own space, onto the screen, stored in [out] at [at]. */
@@ -829,19 +880,19 @@ internal class EmblemModel private constructor(
         val vy = layout[o + 3] * x + layout[o + 4] * y + layout[o + 5] * z + layout[o + 10]
         val vz = layout[o + 6] * x + layout[o + 7] * y + layout[o + 8] * z + layout[o + 11]
         val s = CAMERA / (CAMERA - vz)
-        out[at] = cx + (vx + offsetX) * unit * s
-        out[at + 1] = cy + (vy + offsetY) * unit * s
+        out[at] = cx + (vx + vz * shearX + offsetX) * unit * s
+        out[at + 1] = cy + (vy + vz * shearY + offsetY) * unit * s
     }
 
     /**
-     * Works out every item's colour, width and depth. A lit facet takes its tone from its true
-     * normal: shadow through base to light, with a sheen that treble opens. Everything else
-     * gives off its own light and only dims a little as it recedes.
+     * Works out every item's colour, width and depth. A cel-shaded facet takes its shadow or its
+     * light tone by which way its true normal faces, with only a narrow blend between the two, so
+     * the tones change in steps as the facet turns. Everything else gives off its own light and
+     * only dims a little as it recedes.
      */
-    private fun shade(bass: Float, treble: Float, lineUnit: Float) {
+    private fun shade(bass: Float, lineUnit: Float) {
         val impact = fx.impact
         val bright = min1(0.86f + 0.14f * bass + 0.25f * impact)
-        val sheenGain = 0.55f + 0.90f * treble
         for (i in 0 until count) {
             val f = first[i]
             val n = size[i]
@@ -869,41 +920,32 @@ internal class EmblemModel private constructor(
                     p = q
                 }
                 z /= n
-                if (materials[m] == Emblem.LIT) {
+                if (materials[m] == Emblem.CEL) {
                     val length = sqrt(nx * nx + ny * ny + nz * nz)
-                    // Both faces are lit: whichever one is toward the viewer.
+                    // Both faces are painted: whichever one is toward the viewer.
                     val flip = if (nz < 0f) -1f else 1f
                     val inverse = if (length > 1e-9f) flip / length else 0f
-                    nx *= inverse
-                    ny *= inverse
-                    nz *= inverse
-                    val tone = smooth((nx * LX + ny * LY + nz * LZ + WRAP) / (1f + WRAP))
-                    val dim = 0.80f + 0.20f * ((z + 1.2f) / 2.4f).coerceIn(0f, 1f)
-                    val q = if (tone < 0.5f) m + 2 else m + 5
-                    val part = if (tone < 0.5f) tone * 2f else (tone - 0.5f) * 2f
-                    r = (materials[q] + (materials[q + 3] - materials[q]) * part) * dim
-                    g = (materials[q + 1] + (materials[q + 4] - materials[q + 1]) * part) * dim
-                    b = (materials[q + 2] + (materials[q + 5] - materials[q + 2]) * part) * dim
-                    val gloss = max(0f, nx * HX + ny * HY + nz * HZ).pow(GLOSS)
-                    val sheen = materials[m + 11] * smooth((gloss * sheenGain - 0.06f) / 0.62f)
-                    r += (1f - r) * sheen
-                    g += (1f - g) * sheen
-                    b += (1f - b) * sheen
+                    val facing = (nx * LX + ny * LY + nz * LZ) * inverse
+                    val light = smooth((facing - CEL_SPLIT) / CEL_SOFT + 0.5f)
+                    val dim = 0.82f + 0.18f * ((z + 1.2f) / 2.4f).coerceIn(0f, 1f)
+                    r = (materials[m + 2] + (materials[m + 5] - materials[m + 2]) * light) * dim
+                    g = (materials[m + 3] + (materials[m + 6] - materials[m + 3]) * light) * dim
+                    b = (materials[m + 4] + (materials[m + 7] - materials[m + 4]) * light) * dim
                 } else {
                     val level = bright * fog(z)
-                    r = materials[m + 5] * level
-                    g = materials[m + 6] * level
-                    b = materials[m + 7] * level
+                    r = materials[m + 2] * level
+                    g = materials[m + 3] * level
+                    b = materials[m + 4] * level
                 }
             } else {
                 val head = idx[f]
                 val tail = idx[f + n - 1]
                 z = (wz[head] + wz[idx[f + n / 2]] + wz[tail]) / 3f
-                width[i] = baseWidth[i] * lineUnit * (ws[head] + ws[tail]) * 0.5f
+                width[i] = baseWidth[i] * lineUnit * (ws[head] + ws[tail]) * 0.5f * grow[i]
                 val level = bright * fog(z)
-                r = materials[m + 5] * level
-                g = materials[m + 6] * level
-                b = materials[m + 7] * level
+                r = materials[m + 2] * level
+                g = materials[m + 3] * level
+                b = materials[m + 4] * level
             }
             depth[i] = z + bias[i]
             argb[i] = if (alpha <= 0f) 0 else argb(alpha, r, g, b)
@@ -921,7 +963,7 @@ internal class EmblemModel private constructor(
 
     private fun clamp01(v: Float): Float = if (v < 0f) 0f else if (v > 1f) 1f else v
 
-    /** Hermite smoothstep of [v] clamped to 0..1. */
+    /** Hermite smoothstep of [v] clamped to 0..1: eases in and out. */
     private fun smooth(v: Float): Float {
         val x = clamp01(v)
         return x * x * (3f - 2f * x)
@@ -955,20 +997,18 @@ internal class EmblemModel private constructor(
         }
     }
 
+    private fun identity(out: FloatArray) {
+        out[0] = 1f; out[1] = 0f; out[2] = 0f
+        out[3] = 0f; out[4] = 1f; out[5] = 0f
+        out[6] = 0f; out[7] = 0f; out[8] = 1f
+    }
+
     private fun rotX(out: FloatArray, angle: Float) {
         val c = cos(angle)
         val s = sin(angle)
         out[0] = 1f; out[1] = 0f; out[2] = 0f
         out[3] = 0f; out[4] = c; out[5] = -s
         out[6] = 0f; out[7] = s; out[8] = c
-    }
-
-    private fun rotY(out: FloatArray, angle: Float) {
-        val c = cos(angle)
-        val s = sin(angle)
-        out[0] = c; out[1] = 0f; out[2] = s
-        out[3] = 0f; out[4] = 1f; out[5] = 0f
-        out[6] = -s; out[7] = 0f; out[8] = c
     }
 
     private fun rotZ(out: FloatArray, angle: Float) {
@@ -1005,14 +1045,20 @@ internal class EmblemModel private constructor(
         /** Once [age] reaches this every entrance is over. */
         const val INTRO_DONE = 2f
 
-        /** How long the Astrolabe takes to draw itself in. */
+        /** How long the Astrolabe takes to draw itself in and part its plates. */
         const val INTRO_A = 1.4f
 
-        /** Turns a spring may run up before [rewind] takes them off. */
+        /** Turns a spring may run up before [rewindBy] takes them off. A whole number of turns, so nothing visibly moves. */
         const val REWIND = TWO_PI * 16f
 
-        /** Eclipse: longest the clockwork waits for a kick before it steps anyway, how far a kick jolts it, the core's radius. */
+        /**
+         * Eclipse: longest the clockwork waits for a kick before it steps anyway; how far a kick
+         * throws the star toward you; how hard a kick rolls it (radians a second); how far it
+         * shakes it; the core's radius.
+         */
         const val STEP_IDLE = 3.2f
+        const val PUNCH = 0.45f
+        const val ROLL_KICK = 0.9f
         const val SHAKE = 0.035f
         const val CORE_EDGE = 0.27f
 
@@ -1022,12 +1068,21 @@ internal class EmblemModel private constructor(
         const val SLASH_SPAN = 1.5f
         const val SLASH_SECONDS = 0.45f
 
-        /** Sunwheel: rays, the star's arm length, how strong each afterimage is, and how often a neon outline buzzes. */
+        /** Where cel shading turns from shadow to light (facing toward the light, -1..1), and how soft the turn is. */
+        const val CEL_SPLIT = 0.55f
+        const val CEL_SOFT = 0.08f
+
+        /**
+         * Sunwheel: rays, the star's arm length, how strong each afterimage is, how often a neon
+         * outline buzzes, the shortest wait between flips and how long one takes.
+         */
         const val RAYS = 12
         const val ARM = 0.56f
         val GHOST_FADE = floatArrayOf(0.30f, 0.17f, 0.08f)
         const val FLICKER = 0.003f
         const val FLICKER_SLOT = 0.07f
+        const val FLIP_GAP = 4.5f
+        const val FLIP_SECONDS = 0.8f
 
         /** Astrolabe: one tick of the disc (6 degrees), ripples, constellation and comet timing. */
         const val TICK = 0.10472f
@@ -1040,16 +1095,9 @@ internal class EmblemModel private constructor(
         const val COMET_EVERY = 8.5f
         const val COMET_SECONDS = 1.4f
 
-        /** How far the light wraps past the terminator, and the Blinn exponent of the sheen. */
-        const val WRAP = 0.35f
-        const val GLOSS = 14f
-
-        // Key light from the upper left, in front, and the half vector between it and the viewer. As in GyroModel.
+        // Key light from the upper left, in front. As in GyroModel; here it only decides which cel tone a facet takes.
         const val LX = -0.451f
         const val LY = -0.702f
         const val LZ = 0.551f
-        const val HX = -0.256f
-        const val HY = -0.399f
-        const val HZ = 0.881f
     }
 }

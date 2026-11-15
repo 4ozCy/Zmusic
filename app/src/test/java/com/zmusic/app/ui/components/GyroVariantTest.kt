@@ -6,33 +6,62 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class GyroVariantTest {
+    /** The first [n] cards dealt from a fresh deck. */
+    private fun deal(n: Int, random: Random): List<GyroVariant> {
+        var deck = GyroDeck.fresh(random)
+        val cards = mutableListOf(deck.current)
+        while (cards.size < n) {
+            deck = deck.next(random)
+            cards += deck.current
+        }
+        return cards
+    }
+
     @Test
-    fun aNewSongNeverKeepsTheSameSculpture() {
-        val random = Random(7)
-        var current = GyroVariant.next(null, random)
-        repeat(500) {
-            val next = GyroVariant.next(current, random)
-            assertNotEquals(current, next)
-            current = next
+    fun everySculptureShowsOnceInEachRoundOfFour() {
+        val cards = deal(400, Random(7))
+        for (round in cards.chunked(GyroVariant.entries.size)) {
+            assertEquals(GyroVariant.entries.toSet(), round.toSet())
         }
     }
 
     @Test
-    fun everySculptureComesUp() {
-        val random = Random(11)
-        val seen = mutableSetOf<GyroVariant>()
-        var current: GyroVariant? = null
-        repeat(200) {
-            current = GyroVariant.next(current, random)
-            seen += current!!
-        }
+    fun theSameSculptureNeverShowsTwiceRunning() {
+        val cards = deal(400, Random(11))
+        for (k in 1 until cards.size) assertNotEquals("card $k", cards[k - 1], cards[k])
+    }
+
+    @Test
+    fun theFirstCardCanBeAnyOfThem() {
+        val seen = (0 until 200).map { GyroDeck.fresh(Random(it)).current }.toSet()
         assertEquals(GyroVariant.entries.toSet(), seen)
     }
 
     @Test
-    fun theFirstPickCanBeAnyOfThem() {
-        val random = Random(3)
-        val seen = (0 until 200).map { GyroVariant.next(null, random) }.toSet()
-        assertEquals(GyroVariant.entries.toSet(), seen)
+    fun aKeptDeckCarriesOnWhereItLeftOff() {
+        val random = Random(5)
+        var deck = GyroDeck.fresh(random)
+        repeat(6) { deck = deck.next(random) }
+        val kept = GyroDeck.restore(deck.save())
+        assertEquals(deck.save(), kept.save())
+        assertEquals(deck.current, kept.current)
+    }
+
+    @Test
+    fun aDeckThatNoLongerFitsIsDealtAfresh() {
+        val broken = listOf(
+            null,
+            "",
+            "Eclipse;0",
+            "Eclipse,Eclipse,Sunwheel,Astrolabe;0",
+            "Gyroscope,Eclipse,Sunwheel,Astrolabe;9",
+            "Gyroscope,Eclipse,Sunwheel,Comet;1",
+            "Gyroscope,Eclipse,Sunwheel,Astrolabe;x",
+        )
+        for (text in broken) {
+            val names = GyroDeck.restore(text, Random(3)).save().substringBefore(";").split(",")
+            assertEquals("$text", GyroVariant.entries.map { it.name }.toSet(), names.toSet())
+            assertEquals("$text", GyroVariant.entries.size, names.size)
+        }
     }
 }
