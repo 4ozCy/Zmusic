@@ -33,11 +33,17 @@ class PlaybackService : MediaSessionService() {
                 context: Context,
                 enableFloatOutput: Boolean,
                 enableAudioTrackPlaybackParams: Boolean,
-            ): AudioSink? = DefaultAudioSink.Builder(context)
-                .setEnableFloatOutput(enableFloatOutput)
-                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                .setAudioProcessors(arrayOf<AudioProcessor>(LevelAudioProcessor()))
-                .build()
+            ): AudioSink {
+                val levels = LevelAudioProcessor()
+                val sink = DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf<AudioProcessor>(levels))
+                    .build()
+                // Stamps the analysis with media time and publishes the playout clock, so the
+                // visuals land on the beat you hear instead of the sink's buffer ahead of it.
+                return TimedAudioSink(sink, levels)
+            }
         }
 
         val player = ExoPlayer.Builder(this, renderers)
