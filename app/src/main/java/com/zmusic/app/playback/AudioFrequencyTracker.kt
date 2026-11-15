@@ -12,6 +12,7 @@ import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.log10
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -21,12 +22,18 @@ import kotlin.math.sqrt
  * It publishes three smoothed, normalised bands ([bass], [mid], [treble], each `0f..1f`) plus the
  * twelve finer [bands] they are built from. Where the numbers come from is decided every frame:
  *
- * 1. **Visualizer** - `android.media.audiofx.Visualizer` attached to the player's own audio
- *    session. Needs the `RECORD_AUDIO` runtime permission. It taps the output mix, so it is in
- *    sync with what you hear and works for any sample format.
- * 2. **PCM tap** - [LevelAudioProcessor] measuring ExoPlayer's buffers. No permission, so this is
- *    what runs when the permission is denied or the Visualizer cannot be created.
+ * 1. **PCM tap** - [LevelAudioProcessor] measuring ExoPlayer's buffers (86 analyses a second,
+ *    full sample depth, no permission). Each analysis is stamped with its media time and only
+ *    used once the sink's playout clock reaches it (see [AudioLevels.heardNow]), so it lands on
+ *    the beat you hear, not the sink's buffer ahead of it.
+ * 2. **Visualizer** - `android.media.audiofx.Visualizer` attached to the player's own audio
+ *    session, when the tap has nothing for "now" (an encoding it cannot read). Needs the
+ *    `RECORD_AUDIO` runtime permission; coarser (8-bit, about 20 captures a second).
  * 3. **Breathing** - a slow synthetic wave while nothing is playing, so the UI never freezes.
+ *
+ * Levels are measured in dB and mapped onto 0..1 against a slowly moving ceiling (automatic
+ * gain), so a loud master does not sit pinned at 1 with its kicks flattened, and a quiet one
+ * still moves.
  *
  * Threading: [attach], [release] and [step] must all be called on the main thread. Visualizer
  * delivers its captures on the looper of the thread that created it, which is therefore also the
@@ -72,7 +79,10 @@ class AudioFrequencyTracker {
 
     private var visualizer: Visualizer? = null
     private var attachedSession = 0
-    private val raw = FloatArray(BANDS)
+    private val raw = FloatArray(BANDS) // Visualizer, dB
+    private val tapDb = FloatArray(BANDS) // PCM tap at the playout clock, dB
+    private val targetDb = FloatArray(BANDS)
+    private var ceilingDb = CEILING_START
     private var lastCaptureNanos = 0L
     private var lastFrameNanos = 0L
 
@@ -142,8 +152,7 @@ class AudioFrequencyTracker {
             }
             // 8-bit capture: full scale is ~128, giving about 42 dB of usable range. The tilt
             // lifts the upper bands, which always carry less energy in music.
-            val db = 20f * log10(peak / 128f + 1e-4f) + b * 1.5f
-            raw[b] = ((db + 40f) / 36f).coerceIn(0f, 1f)
+            raw[b] = 20f * log10(peak / 128f + 1e-4f) + b * 1.5f
         }
         lastCaptureNanos = System.nanoTime()
     }
@@ -160,22 +169,41 @@ class AudioFrequencyTracker {
         // Float seconds lose sub-frame precision after a few hours; one wrap an hour is invisible.
         if (seconds > 3600f) seconds -= 3600f
 
-        val visualizerLive = visualizer != null && System.nanoTime() - lastCaptureNanos < STALE_NANOS
+        val now = System.nanoTime()
+        val visualizerLive = visualizer != null && now - lastCaptureNanos < STALE_NANOS
+        val tapLive = playing && AudioLevels.heardNow(now, tapDb)
         source = when {
             !playing -> Source.Breathing
+            tapLive -> Source.PcmTap
             visualizerLive -> Source.Visualizer
             else -> Source.PcmTap
+        }
+
+        // Automatic gain: the ceiling jumps up to the loudest band quickly and sinks slowly, and
+        // every band is read against it, which keeps the spectrum's shape but not its loudness.
+        val live = source == Source.Visualizer || (source == Source.PcmTap && tapLive)
+        if (live) {
+            var loudest = SILENT_DB
+            for (i in 0 until BANDS) {
+                targetDb[i] = if (source == Source.Visualizer) raw[i] else tapDb[i]
+                if (targetDb[i] > loudest) loudest = targetDb[i]
+            }
+            ceilingDb = if (loudest > ceilingDb) {
+                ceilingDb + (loudest - ceilingDb) * min(1f, dt * 12f)
+            } else {
+                (ceilingDb - CEILING_FALL_DB * dt).coerceAtLeast(CEILING_FLOOR)
+            }
         }
 
         val attack = 1f - exp(-dt * 34f)
         val release = 1f - exp(-dt * (if (playing) 8f else 3f))
         for (i in 0 until BANDS) {
             val breath = 0.13f + 0.09f * sin(seconds * 0.85f - i * 0.42f)
-            val target = when (source) {
-                Source.Visualizer -> max(raw[i], breath * 0.35f)
-                // The floor keeps things moving when the tap is inactive (non 16-bit audio).
-                Source.PcmTap -> max(AudioLevels.bands[i], breath * 0.35f)
-                Source.Breathing -> breath
+            val target = when {
+                source == Source.Breathing -> breath
+                // The floor keeps things moving between hits and when nothing is measured.
+                live -> max(((targetDb[i] - ceilingDb) / RANGE_DB + 1f).coerceIn(0f, 1f), breath * 0.35f)
+                else -> breath * 0.35f
             }
             val current = bands[i]
             bands[i] = current + (target - current) * (if (target > current) attack else release)
@@ -193,6 +221,13 @@ class AudioFrequencyTracker {
 
         /** If no capture arrived for this long, the Visualizer is treated as dead. */
         private const val STALE_NANOS = 500_000_000L
+
+        /** Automatic gain: dB shown below the ceiling, where the ceiling starts and how low it may sink. */
+        private const val RANGE_DB = 40f
+        private const val CEILING_START = -12f
+        private const val CEILING_FLOOR = -34f
+        private const val CEILING_FALL_DB = 3f
+        private const val SILENT_DB = -200f
 
         /** Band boundaries in Hz: geometric midpoints of the same centres [LevelAudioProcessor] uses. */
         private val BAND_EDGES = floatArrayOf(
