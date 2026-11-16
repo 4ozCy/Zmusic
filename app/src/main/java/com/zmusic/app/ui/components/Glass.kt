@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -126,11 +127,14 @@ fun Modifier.tilt3DOnPress(
     maxTiltDegrees: Float = 9f,
     pressedScale: Float = 0.965f,
     onClickLabel: String? = null,
+    onLongClickLabel: String? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ): Modifier = composed {
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val click by rememberUpdatedState(onClick)
+    val longClick by rememberUpdatedState(onLongClick)
     val tiltX = remember { Animatable(0f) }
     val tiltY = remember { Animatable(0f) }
     val press = remember { Animatable(0f) }
@@ -145,7 +149,7 @@ fun Modifier.tilt3DOnPress(
             // Compose multiplies by density itself; 14 gives visible but not cartoonish foreshortening.
             cameraDistance = 14f * density
         }
-        .pointerInput(maxTiltDegrees) {
+        .pointerInput(maxTiltDegrees, onLongClick != null) {
             val follow = spring<Float>(dampingRatio = 0.70f, stiffness = Spring.StiffnessMedium)
             val settle = spring<Float>(dampingRatio = 0.48f, stiffness = Spring.StiffnessMediumLow)
             detectTapGestures(
@@ -166,6 +170,14 @@ fun Modifier.tilt3DOnPress(
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     click()
                 },
+                onLongPress = if (onLongClick == null) {
+                    null
+                } else {
+                    {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        longClick?.invoke()
+                    }
+                },
             )
         }
         .semantics(mergeDescendants = true) {
@@ -173,6 +185,12 @@ fun Modifier.tilt3DOnPress(
             onClick(label = onClickLabel) {
                 click()
                 true
+            }
+            if (onLongClick != null) {
+                onLongClick(label = onLongClickLabel) {
+                    longClick?.invoke()
+                    true
+                }
             }
         }
 }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 class LibraryRepository(
     private val dao: TrackDao,
     private val scanner: MediaStoreScanner,
+    private val files: TrackFiles,
 ) {
     private val mutex = Mutex()
     private var lastScanAt = 0L
@@ -27,6 +28,40 @@ class LibraryRepository(
     fun observeAll(): Flow<List<TrackEntity>> = dao.observeAll()
     fun observeRecentlyAdded(limit: Int): Flow<List<TrackEntity>> = dao.observeRecentlyAdded(limit)
     fun search(query: String): Flow<List<TrackEntity>> = dao.search(query)
+
+    suspend fun track(mediaStoreId: Long): TrackEntity? = dao.get(mediaStoreId)
+
+    /**
+     * Deletes the song's file. On [FileChange.Done] the song leaves the library at once instead of
+     * waiting for the next scan. Other results say what Android needs first.
+     */
+    suspend fun delete(track: TrackEntity, approved: Boolean): FileChange {
+        val result = files.delete(track, approved)
+        when (result) {
+            is FileChange.Done -> {
+                dao.markMissing(listOf(track.mediaStoreId))
+                BugLog.i("Library", "Deleted \"${track.title}\"")
+            }
+            is FileChange.Failed -> BugLog.w("Library", "Could not delete \"${track.title}\": ${result.reason}")
+            else -> Unit
+        }
+        return result
+    }
+
+    /**
+     * Renames the song's file to [input] (extension kept). On [FileChange.Done] the song is read
+     * back from MediaStore, so a title that came from the old name changes with it. Returns the
+     * fresh row alongside, or null if the song can no longer be read.
+     */
+    suspend fun rename(track: TrackEntity, input: String, approved: Boolean): Pair<FileChange, TrackEntity?> {
+        val result = files.rename(track, input, approved)
+        if (result is FileChange.Failed) BugLog.w("Library", "Could not rename \"${track.title}\": ${result.reason}")
+        if (result !is FileChange.Done) return result to null
+        val fresh = withContext(Dispatchers.IO) { scanner.scanOne(track.mediaStoreId) }
+        if (fresh != null) dao.upsertAll(listOf(fresh))
+        BugLog.i("Library", "Renamed \"${track.fileName}\" to \"${fresh?.fileName ?: result.fileName}\"")
+        return result to fresh
+    }
 
     /** Throttled unless [force]. Serialized so overlapping calls can't run two scans. */
     suspend fun refresh(force: Boolean = false) {

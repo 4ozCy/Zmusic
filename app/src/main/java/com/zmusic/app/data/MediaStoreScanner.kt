@@ -5,16 +5,22 @@ import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
 
-/** Reads audio from MediaStore. Never touches or modifies the files themselves. */
+/** Reads audio from MediaStore. Only reads: renaming and deleting live in [TrackFiles]. */
 class MediaStoreScanner(private val context: Context) {
 
-    fun scan(): List<TrackEntity> {
-        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        } else {
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        }
+    private val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    } else {
+        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+    }
 
+    fun scan(): List<TrackEntity> = query(extraSelection = null, extraArgs = emptyArray())
+
+    /** Reads one song again, for example after its file was renamed. Null if it is gone. */
+    fun scanOne(mediaStoreId: Long): TrackEntity? =
+        query("${MediaStore.Audio.Media._ID} = ?", arrayOf(mediaStoreId.toString())).firstOrNull()
+
+    private fun query(extraSelection: String?, extraArgs: Array<String>): List<TrackEntity> {
         val projection = buildList {
             add(MediaStore.Audio.Media._ID)
             add(MediaStore.Audio.Media.TITLE)
@@ -25,11 +31,13 @@ class MediaStoreScanner(private val context: Context) {
             add(MediaStore.Audio.Media.DATE_ADDED)
             add(MediaStore.Audio.Media.SIZE)
             add(MediaStore.Audio.Media.MIME_TYPE)
+            add(MediaStore.Audio.Media.DISPLAY_NAME)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(MediaStore.Audio.Media.RELATIVE_PATH)
         }.toTypedArray()
 
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= ?"
-        val args = arrayOf(MIN_DURATION_MS.toString())
+        val base = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} >= ?"
+        val selection = if (extraSelection == null) base else "$base AND $extraSelection"
+        val args = arrayOf(MIN_DURATION_MS.toString(), *extraArgs)
         val out = ArrayList<TrackEntity>()
 
         context.contentResolver.query(collection, projection, selection, args, null)?.use { c ->
@@ -42,6 +50,7 @@ class MediaStoreScanner(private val context: Context) {
             val addedCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val sizeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val mimeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+            val nameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val pathCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 c.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
             } else {
@@ -62,6 +71,7 @@ class MediaStoreScanner(private val context: Context) {
                     sizeBytes = c.getLong(sizeCol),
                     mimeType = c.getString(mimeCol),
                     relativePath = if (pathCol >= 0) c.getString(pathCol) else null,
+                    fileName = c.getString(nameCol),
                 )
             }
         }

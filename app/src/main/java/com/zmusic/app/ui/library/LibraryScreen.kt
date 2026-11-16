@@ -62,6 +62,7 @@ private data class LetterGroup(
 /**
  * Library. A clean alphabetical index: a large letter with a glass count badge opens each group,
  * rows are bare type, and a slim glass rail on the right edge jumps between letters (tap or drag).
+ * A long press on a song opens its options.
  *
  * @param contentPadding status bar at the top, floating dock and mini player at the bottom.
  */
@@ -74,6 +75,7 @@ fun LibraryScreen(
     scanError: String?,
     contentPadding: PaddingValues,
     onRefresh: () -> Unit,
+    onTrackOptions: (TrackEntity) -> Unit,
 ) {
     // Tracks arrive sorted by title, so letter groups are contiguous. Each song keeps its index in
     // the full list so tapping plays from the right place. List item 0 is the screen header.
@@ -130,6 +132,7 @@ fun LibraryScreen(
                             track = iv.value,
                             isCurrent = iv.value.mediaStoreId.toString() == playerState.mediaId,
                             modifier = if (showRail) Modifier.padding(end = 22.dp) else Modifier,
+                            onLongClick = { onTrackOptions(iv.value) },
                         ) {
                             player.setShuffle(false)
                             player.playQueue(tracks, iv.index)

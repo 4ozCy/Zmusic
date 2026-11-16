@@ -23,6 +23,9 @@ interface TrackDao {
     @Query("SELECT mediaStoreId FROM tracks")
     suspend fun allIds(): List<Long>
 
+    @Query("SELECT * FROM tracks WHERE mediaStoreId = :id")
+    suspend fun get(id: Long): TrackEntity?
+
     @Upsert
     suspend fun upsertAll(tracks: List<TrackEntity>)
 
