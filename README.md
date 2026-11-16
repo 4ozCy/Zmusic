@@ -15,6 +15,7 @@ Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#0707
 - Glass is reserved for things that float: the navigation dock, the mini player, the action pills, the "Recently added" tiles and the Now Playing sheet. List rows are bare type.
 - The dock, mini player and sheet blur what is behind them live ([Haze](https://github.com/chrisbanes/haze), `RenderEffect`, Android 12L+; older versions get near-solid smoked glass).
 - Motion is spring-driven. Tiles tilt in 3D under your finger, the dock lozenge slides between tabs, the sheet rises while un-tilting in perspective.
+- Each launch opens on "Welcome to Zmusic". The logo picks up where the system splash left it: its five bars dip from the middle out and spring back, two amber rings ripple out of the middle bar, then the logo lifts and shrinks while the bars keep moving like a level meter and the name rises in letter by letter. It fades out over the app after about 3 seconds; a tap skips it. With system animations off it just shows and fades.
 - Now Playing shows a procedural 3D gyroscope instead of artwork: three gimballed metal hoops and a spectrum halo, built from real vertices with perspective projection, smooth per-vertex lighting and depth sorting on a Compose `Canvas`. It is staged like an anime skill going off: a summoning circle with runes and a hexagram turns on the floor under it, a pillar of light rises through the core, and streams of light wind up round the hoops. A hard kick fires lightning from the core to the hoops, focus lines in from the edge of the frame, and a flare across the core star.
 - The gyroscope is one of four sculptures. A shuffled deck deals a new one every time a song starts (including the same song again on repeat), so each shows once in any four songs and none shows twice running. The deck is kept on disk, so reopening the app carries on the same rotation. The mini player and the queue header show a cut-down copy of the one on stage.
 - The other three are emblems built from flat layers in 3D. None moves like the gyroscope: nothing tumbles or tips over like a hoop, and the camera never nods or sways. Each has its own camera, shading, motion, spectrum display, entrance, exit and kick effect:
@@ -104,6 +105,7 @@ app/src/main/java/com/zmusic/app/
   ui/sound/    the Sound panel: band graph, sliders, view model
   ui/songs/    song options sheet, rename and delete dialogs, their view model
   ui/theme/    seed-based colour schemes, type, shapes
+  ui/welcome/  the launch welcome screen and its timeline
   ui/components/  motion primitives, audio-reactive visuals, scrubber, backdrop, rows, mini player
   ui/          screens and navigation shell
   util/        formatting helpers

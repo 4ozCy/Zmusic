@@ -95,6 +95,7 @@ import com.zmusic.app.ui.songs.SongOptionActions
 import com.zmusic.app.ui.songs.SongOptionsSheet
 import com.zmusic.app.ui.sound.SoundViewModel
 import com.zmusic.app.ui.theme.ZmusicTheme
+import com.zmusic.app.ui.welcome.WelcomeScreen
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.delay
@@ -168,6 +169,9 @@ fun ZmusicRoot(container: AppContainer) {
     }
 
     val playerState by container.player.state.collectAsStateWithLifecycle()
+    // Shown once per launch. Saveable, so turning the phone or coming back to a restored app
+    // does not play it again.
+    var welcome by rememberSaveable { mutableStateOf(true) }
 
     ZmusicTheme {
         // The single tracker every live visual draws from.
@@ -224,6 +228,9 @@ fun ZmusicRoot(container: AppContainer) {
                         },
                     )
                 }
+                // On top of everything, so the app is already laid out underneath and shows
+                // through as the welcome fades.
+                if (welcome) WelcomeScreen(onFinished = { welcome = false })
             }
         }
     }
