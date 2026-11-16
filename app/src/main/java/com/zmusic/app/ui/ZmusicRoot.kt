@@ -122,6 +122,12 @@ private const val KEY_GYRO_SONG = "gyro_deck_song"
 /** How long a song change settles before it deals a new sculpture. Too short to see. */
 private const val DEAL_SETTLE_MS = 150L
 
+/**
+ * Whether Haze gives the Now Playing sheet a live blur here (it does by default from Android 12L).
+ * Below that the sheet is a nearly opaque tint instead, and what is under it stays drawn.
+ */
+private val SHEET_BLURS = Build.VERSION.SDK_INT >= 32
+
 private fun Context.hasPermission(permission: String) =
     ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
@@ -339,6 +345,11 @@ private fun MainShell(
     }
     val bugsAlert = latestProblemId > seenProblemId && currentRoute != BUGS_ROUTE
 
+    // The screens only need to know which song is playing. Handing them this instead of the whole
+    // player state means play/pause, shuffle, repeat and the queue filling in the background
+    // never recompose the lists.
+    val currentId = playerState.mediaId?.toLongOrNull()
+
     val bars = WindowInsets.systemBars.asPaddingValues()
     val contentPadding = PaddingValues(
         top = bars.calculateTopPadding(),
@@ -368,7 +379,18 @@ private fun MainShell(
     val tabSpring = spring<Float>(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
 
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().haze(hazeState)) {
+        // From Android 12L the sheet is real frosted glass: an opaque pane that paints its own
+        // blurred copy of everything behind it, edge to edge. Once it is all the way up, drawing
+        // that content a second time underneath it only costs a full-screen pass of the backdrop
+        // shader every frame, so the copy in place is hidden. The blur keeps reading it: Haze
+        // records the content once and draws that same recording into the sheet. The layer also
+        // keeps the backdrop's redraw on every frame inside this box.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = if (SHEET_BLURS && sheet.value == 1f) 0f else 1f }
+                .haze(hazeState),
+        ) {
             AmbientAudioShaderBackground(Modifier.fillMaxSize())
             NavHost(
                 navController = nav,
@@ -390,7 +412,7 @@ private fun MainShell(
                     HomeScreen(
                         tracks = tracks,
                         recent = recent,
-                        playerState = playerState,
+                        currentId = currentId,
                         player = player,
                         scanning = scanning,
                         contentPadding = contentPadding,
@@ -402,7 +424,7 @@ private fun MainShell(
                 composable("library") {
                     LibraryScreen(
                         tracks = tracks,
-                        playerState = playerState,
+                        currentId = currentId,
                         player = player,
                         scanning = scanning,
                         scanError = scanError,
@@ -411,7 +433,7 @@ private fun MainShell(
                         onTrackOptions = openOptions,
                     )
                 }
-                composable("search") { SearchScreen(vm, playerState, player, contentPadding, onTrackOptions = openOptions) }
+                composable("search") { SearchScreen(vm, currentId, player, contentPadding, onTrackOptions = openOptions) }
                 composable(BUGS_ROUTE) { BugLogScreen(contentPadding) }
             }
         }

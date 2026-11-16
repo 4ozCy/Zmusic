@@ -36,6 +36,21 @@ class EmblemModelTest {
     }
 
     @Test
+    fun haloClassesListExactlyTheirItemsInOrder() {
+        for (variant in emblems) {
+            for (fine in listOf(true, false)) {
+                val model = EmblemModel(variant, fine)
+                assertEquals("$variant", 0, model.glowStart[0])
+                for (c in 0 until model.glowCount) {
+                    val expected = (0 until model.count).filter { model.glow[it] == c + 1 }
+                    val listed = (model.glowStart[c] until model.glowStart[c + 1]).map { model.glowMembers[it] }
+                    assertEquals("$variant fine=$fine class ${c + 1}", expected, listed)
+                }
+            }
+        }
+    }
+
+    @Test
     fun itemsAreOrderedFarToNearAndEachAppearsOnce() {
         for (variant in emblems) {
             val model = EmblemModel(variant, fine = true)

@@ -42,7 +42,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
-import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.EqBars
 import com.zmusic.app.ui.components.GlassPill
 import com.zmusic.app.ui.components.RescanButton
@@ -64,13 +63,14 @@ import kotlin.random.Random
  * aurora. Glass appears only where something is meant to be picked up: the three action pills and
  * the "Recently added" tiles.
  *
+ * @param currentId MediaStore id of the song that is playing, or null.
  * @param contentPadding status bar at the top, floating dock and mini player at the bottom.
  */
 @Composable
 fun HomeScreen(
     tracks: List<TrackEntity>?,
     recent: List<TrackEntity>,
-    playerState: PlayerUiState,
+    currentId: Long?,
     player: PlayerController,
     scanning: Boolean,
     contentPadding: PaddingValues,
@@ -112,7 +112,7 @@ fun HomeScreen(
                                         RecentTile(
                                             position = i + 1,
                                             track = t,
-                                            isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
+                                            isCurrent = t.mediaStoreId == currentId,
                                             onLongClick = { onTrackOptions(t) },
                                         ) {
                                             player.setShuffle(false)
@@ -129,7 +129,7 @@ fun HomeScreen(
                 itemsIndexed(mix.take(6), key = { _, t -> "mix-${t.mediaStoreId}" }) { i, t ->
                     TrackRow(
                         track = t,
-                        isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
+                        isCurrent = t.mediaStoreId == currentId,
                         number = i + 1,
                         onLongClick = { onTrackOptions(t) },
                     ) {
@@ -174,8 +174,8 @@ private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
 /** The library at a glance as three glass counters that count up, then the three action pills. */
 @Composable
 private fun LibrarySummary(tracks: List<TrackEntity>, player: PlayerController, onOpenLibrary: () -> Unit) {
-    val albums = remember(tracks) { tracks.map { it.albumId }.distinct().size }
-    val artists = remember(tracks) { tracks.map { it.artist }.distinct().size }
+    val albums = remember(tracks) { tracks.mapTo(HashSet()) { it.albumId }.size }
+    val artists = remember(tracks) { tracks.mapTo(HashSet()) { it.artist }.size }
 
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Row(

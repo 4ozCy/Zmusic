@@ -159,19 +159,7 @@ class PlayerController(context: Context) {
     private fun sync(c: MediaController, rebuildQueue: Boolean) {
         val item = c.currentMediaItem
         val md = item?.mediaMetadata
-        val queue = if (rebuildQueue) {
-            List(c.mediaItemCount) { i ->
-                val m = c.getMediaItemAt(i)
-                QueueEntry(
-                    index = i,
-                    mediaId = m.mediaId,
-                    title = m.mediaMetadata.title?.toString().orEmpty(),
-                    artist = m.mediaMetadata.artist?.toString().orEmpty(),
-                )
-            }
-        } else {
-            _state.value.queue
-        }
+        val queue = if (rebuildQueue) rebuildQueue(c, _state.value.queue) else _state.value.queue
         _state.value = PlayerUiState(
             hasMedia = item != null,
             mediaId = item?.mediaId,
@@ -188,6 +176,32 @@ class PlayerController(context: Context) {
             currentIndex = c.currentMediaItemIndex,
             songStarts = songStarts,
         )
+    }
+
+    /**
+     * The controller's queue as [QueueEntry]s. A big library's queue fills in batches, and each
+     * batch changes the timeline, so this runs dozens of times while the songs after the first
+     * window arrive. Entries that are still right are reused instead of built again, and if
+     * nothing changed at all, [old] itself comes back, so the state stays equal and the queue
+     * on screen is left alone.
+     */
+    private fun rebuildQueue(c: MediaController, old: List<QueueEntry>): List<QueueEntry> {
+        val n = c.mediaItemCount
+        var same = old.size == n
+        val out = ArrayList<QueueEntry>(n)
+        for (i in 0 until n) {
+            val m = c.getMediaItemAt(i)
+            val title = m.mediaMetadata.title?.toString().orEmpty()
+            val artist = m.mediaMetadata.artist?.toString().orEmpty()
+            val prev = if (i < old.size) old[i] else null
+            if (prev != null && prev.mediaId == m.mediaId && prev.title == title && prev.artist == artist) {
+                out += prev
+            } else {
+                same = false
+                out += QueueEntry(index = i, mediaId = m.mediaId, title = title, artist = artist)
+            }
+        }
+        return if (same) old else out
     }
 
     /**

@@ -72,10 +72,16 @@ class LibraryRepository(
                 withContext(Dispatchers.IO) {
                     val found = scanner.scan()
                     BugLog.i("Library", "Scan found ${found.size} audio files")
-                    dao.upsertAll(found)
+                    // Only what changed is written. Any write makes Room run every query that
+                    // watches the table again and hand each screen a fresh copy of the whole
+                    // library, so a scan that finds nothing new should write nothing at all.
+                    val stored = dao.all().associateBy { it.mediaStoreId }
+                    val changed = found.filter { stored[it.mediaStoreId] != it }
+                    if (changed.isNotEmpty()) dao.upsertAll(changed)
                     val foundIds = found.mapTo(HashSet()) { it.mediaStoreId }
-                    dao.allIds()
-                        .filter { it !in foundIds }
+                    stored.values
+                        .filter { it.available && it.mediaStoreId !in foundIds }
+                        .map { it.mediaStoreId }
                         .chunked(500)
                         .forEach { dao.markMissing(it) }
                 }

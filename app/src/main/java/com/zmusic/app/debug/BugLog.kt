@@ -14,6 +14,7 @@ import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
@@ -64,15 +65,20 @@ object BugLog {
         val f = File(context.filesDir, FILE_NAME)
         file = f
 
-        val restored = runCatching {
-            if (f.exists()) f.readLines().mapNotNull(::decode) else emptyList()
-        }.getOrDefault(emptyList())
-        if (restored.isNotEmpty()) {
-            val kept = restored.takeLast(MAX_ENTRIES)
-            _entries.update { current -> (kept + current).takeLast(MAX_ENTRIES) }
-            // Keep the file from growing forever.
-            if (restored.size > MAX_ENTRIES) {
-                io.execute { runCatching { f.writeText(kept.joinToString("") { encode(it) + "\n" }) } }
+        // Read on the log's own thread so app start never waits on the disk. It is queued ahead
+        // of every append, so the file is read before anything new is written to it, and the
+        // lines it holds go in front of whatever has been logged in the meantime.
+        io.execute {
+            val restored = runCatching {
+                if (f.exists()) f.readLines().mapNotNull(::decode) else emptyList()
+            }.getOrDefault(emptyList())
+            if (restored.isNotEmpty()) {
+                val kept = restored.takeLast(MAX_ENTRIES)
+                _entries.update { current -> (kept + current).takeLast(MAX_ENTRIES) }
+                // Keep the file from growing forever.
+                if (restored.size > MAX_ENTRIES) {
+                    runCatching { f.writeText(kept.joinToString("") { encode(it) + "\n" }) }
+                }
             }
         }
 
@@ -114,10 +120,20 @@ object BugLog {
         }
     }
 
-    fun formatTime(timeMs: Long): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(timeMs))
+    // A SimpleDateFormat is slow to build and not thread safe, so each thread keeps its own.
+    private val timeFormat = ThreadLocal.withInitial { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
+    private val dateTimeFormat = ThreadLocal.withInitial { SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US) }
 
-    private fun formatDateTime(timeMs: Long): String =
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date(timeMs))
+    fun formatTime(timeMs: Long): String = format(timeFormat, timeMs)
+
+    private fun formatDateTime(timeMs: Long): String = format(dateTimeFormat, timeMs)
+
+    /** Follows the phone's time zone, as a formatter built for each call would. */
+    private fun format(cached: ThreadLocal<SimpleDateFormat>, timeMs: Long): String {
+        val f = cached.get()!!
+        f.timeZone = TimeZone.getDefault()
+        return f.format(Date(timeMs))
+    }
 
     private fun entry(level: Level, source: String, message: String, error: Throwable?): Entry =
         Entry(nextId.getAndIncrement(), System.currentTimeMillis(), level, source, message, error?.let(::stackTrace))

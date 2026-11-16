@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
-import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.Eyebrow
 import com.zmusic.app.ui.components.ScreenHeader
 import com.zmusic.app.ui.components.TrackRow
@@ -53,12 +52,13 @@ import com.zmusic.app.ui.theme.TimeStyle
 /**
  * Search. The field is a glass capsule; results are the same bare rows as everywhere else.
  *
+ * @param currentId MediaStore id of the song that is playing, or null.
  * @param contentPadding status bar at the top, floating dock and mini player at the bottom.
  */
 @Composable
 fun SearchScreen(
     vm: LibraryViewModel,
-    playerState: PlayerUiState,
+    currentId: Long?,
     player: PlayerController,
     contentPadding: PaddingValues,
     onTrackOptions: (TrackEntity) -> Unit,
@@ -105,7 +105,7 @@ fun SearchScreen(
                     itemsIndexed(results, key = { _, t -> t.mediaStoreId }) { index, track ->
                         TrackRow(
                             track = track,
-                            isCurrent = track.mediaStoreId.toString() == playerState.mediaId,
+                            isCurrent = track.mediaStoreId == currentId,
                             onLongClick = { onTrackOptions(track) },
                         ) {
                             keyboard?.hide()

@@ -87,6 +87,14 @@ uniform float uSpin;
 uniform float uBass;
 uniform float uMid;
 uniform float uTreble;
+// Worked out once a frame on the CPU rather than again for every pixel: where each planet is on
+// its orbit (screen widths from the hole, x right, y up, z toward us; see planetPositions) and
+// how far the nebula's tint has drifted from indigo toward slate.
+uniform float3 uP0;
+uniform float3 uP1;
+uniform float3 uP2;
+uniform float3 uP3;
+uniform float uNebula;
 layout(color) uniform half4 uBase;
 layout(color) uniform half4 uAmber;
 layout(color) uniform half4 uIndigo;
@@ -406,17 +414,6 @@ float4 planet(float2 q, float2 c, float rad, float3 L, float3 axis, float spin, 
     return outCol;
 }
 
-// Where a planet is on its orbit round the hole: radius a, angle th, how open the orbit looks
-// (cos of its inclination) and how far it leans from the disc. x right, y up, z toward us.
-float3 orbitAt(float a, float th, float ci, float lean) {
-    float s = sin(th);
-    float x = a * cos(th);
-    float y = a * s * ci;
-    float cl = cos(lean);
-    float sl = sin(lean);
-    return float3(x * cl - y * sl, x * sl + y * cl, -a * s * sqrt(1.0 - ci * ci));
-}
-
 // Adds a planet to the planets already drawn at this pixel, in front of them or behind by depth.
 // Planets rarely overlap, so remembering the depth of the nearest one drawn so far is enough.
 float4 stack(float4 layer, float layerZ, float4 pl, float z) {
@@ -474,7 +471,7 @@ half4 main(float2 fragCoord) {
     float grain = wnoise(gr * 11.0, 999.0);
     float2 n1 = sky - float2(0.88, aspect * 0.80);
     float2 n2 = sky - float2(0.08, aspect * 0.10);
-    col += mix(indigo, slate, 0.5 + 0.5 * sin(t * 0.07)) * (exp(-dot(n1, n1) / 0.30) * (0.030 + 0.020 * uMid) * (0.6 + 0.8 * grain));
+    col += mix(indigo, slate, uNebula) * (exp(-dot(n1, n1) / 0.30) * (0.030 + 0.020 * uMid) * (0.6 + 0.8 * grain));
     col += slate * (exp(-dot(n2, n2) / 0.20) * 0.025 * (0.6 + 0.8 * grain));
     float lane = smoothstep(0.50, 0.78, wnoise(gr * float2(4.0, 13.0) + 7.0, 999.0)) * exp(-gr.y * gr.y / (0.004 + 0.3 * bw * bw));
     col += mix(slate, indigo * 0.8 + amber * 0.2, grain) * (river * (0.010 + 0.022 * grain) * (1.0 - 0.8 * lane));
@@ -502,15 +499,16 @@ half4 main(float2 fragCoord) {
     col *= smoothstep(BC, BC * 1.35, b);
 
     // ---- Planets ----
-    // Orbit radius and size in screen widths. Every speed and spin is a whole number of turns an
-    // hour, so the clock's hourly wrap is invisible. The Canvas fallback uses the same numbers.
+    // Sizes in screen widths. Their orbits come in as uP0..uP3, from the same table the Canvas
+    // fallback draws with. Every speed and spin is a whole number of turns an hour, so the
+    // clock's hourly wrap is invisible.
     float3 keyCol = mix(amber, float3(1.0, 0.90, 0.76), 0.5) * 1.3;
     float3 fillCol = mix(slate, indigo, 0.55) * 0.10;
     float plight = gain * 0.9;
-    float3 P0 = orbitAt(0.33, t * 0.130900 + 0.6, 0.42, 0.244);
-    float3 P1 = orbitAt(0.40, t * 0.078540 + 2.9, 0.30, -0.157);
-    float3 P2 = orbitAt(0.47, t * 0.052360 + 4.4, 0.20, 0.105);
-    float3 P3 = orbitAt(0.55, t * 0.031416 + 1.7, 0.14, -0.070);
+    float3 P0 = uP0;
+    float3 P1 = uP1;
+    float3 P2 = uP2;
+    float3 P3 = uP3;
     float3 ax0 = float3(0.10, 0.98, 0.17);
     float3 ax1 = float3(0.25, 0.94, 0.23);
     float3 ax2 = float3(-0.30, 0.92, 0.25);
@@ -703,13 +701,22 @@ private fun AgslBlackHole(tracker: AudioFrequencyTracker, spin: RingSpin, shader
             shader.setColorUniform("uIndigo", Nocturne.Indigo.toArgb())
             shader.setColorUniform("uSlate", Nocturne.Slate.toArgb())
             val brush = ShaderBrush(shader)
+            val pos = FloatArray(PLANETS * 3)
             onDrawBehind {
                 tracker.frame.longValue // redraw every frame without recomposing
-                shader.setFloatUniform("uTime", tracker.seconds)
+                val t = tracker.seconds
+                shader.setFloatUniform("uTime", t)
                 shader.setFloatUniform("uSpin", spin.advance(tracker))
                 shader.setFloatUniform("uBass", tracker.bass.value)
                 shader.setFloatUniform("uMid", tracker.mid.value)
                 shader.setFloatUniform("uTreble", tracker.treble.value)
+                // The same for every pixel, so worked out here once instead of millions of times.
+                planetPositions(t, pos)
+                shader.setFloatUniform("uP0", pos[0], pos[1], pos[2])
+                shader.setFloatUniform("uP1", pos[3], pos[4], pos[5])
+                shader.setFloatUniform("uP2", pos[6], pos[7], pos[8])
+                shader.setFloatUniform("uP3", pos[9], pos[10], pos[11])
+                shader.setFloatUniform("uNebula", 0.5f + 0.5f * sin(t * 0.07f))
                 drawRect(brush)
             }
         },
@@ -722,7 +729,7 @@ private const val STARS = 70
 // planet radius are fractions of the screen width; then angular speed (rad/s), start angle, how
 // open the orbit looks (the cosine of its inclination) and how far it leans from the disc
 // (radians). Each speed is a whole number of turns per hour, so the tracker's hourly clock wrap is
-// invisible. The same numbers are written into the shader.
+// invisible. The shader gets its planets from these too, through planetPositions.
 private val PlanetOrbit = floatArrayOf(0.33f, 0.40f, 0.47f, 0.55f)
 private val PlanetSize = floatArrayOf(0.016f, 0.024f, 0.034f, 0.050f)
 private val PlanetSpeed = floatArrayOf(0.130900f, 0.078540f, 0.052360f, 0.031416f)
