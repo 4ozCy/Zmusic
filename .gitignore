@@ -12,3 +12,6 @@ local.properties
 *.jks
 *.keystore
 app/src/main/res/font/*.ttf
+
+# Kotlin 2 compiler session data
+.kotlin/

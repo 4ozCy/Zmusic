@@ -26,4 +26,6 @@ data class TrackEntity(
     val mimeType: String?,
     val relativePath: String?,
     val available: Boolean = true,
+    /** The file's name on disk with its extension (MediaStore DISPLAY_NAME). Null on rows from before version 2. */
+    val fileName: String? = null,
 )

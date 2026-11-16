@@ -40,9 +40,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
@@ -82,6 +84,9 @@ import androidx.compose.ui.util.lerp
 import androidx.media3.common.Player
 import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.playback.QueueEntry
+import com.zmusic.app.playback.SleepTimer
+import com.zmusic.app.playback.eq.EqPreset
+import com.zmusic.app.playback.eq.EqSettings
 import com.zmusic.app.ui.components.EqBars
 import com.zmusic.app.ui.components.Eyebrow
 import com.zmusic.app.ui.components.GlassIconButton
@@ -92,6 +97,8 @@ import com.zmusic.app.ui.components.PlayPauseButton
 import com.zmusic.app.ui.components.ToggleButton
 import com.zmusic.app.ui.components.TransportButton
 import com.zmusic.app.ui.components.pressClick
+import com.zmusic.app.ui.sound.SoundActions
+import com.zmusic.app.ui.sound.SoundPanel
 import com.zmusic.app.ui.theme.AppTheme
 import com.zmusic.app.ui.theme.Nocturne
 import com.zmusic.app.ui.theme.TimeStyle
@@ -105,16 +112,23 @@ import kotlinx.coroutines.launch
 
 /** Everything the sheet can ask the player to do. Keeps the content stateless and previewable. */
 data class NowPlayingActions(
-    val onClose: () -> Unit,
-    val onTogglePlay: () -> Unit,
-    val onNext: () -> Unit,
-    val onPrevious: () -> Unit,
-    val onSeek: (Long) -> Unit,
-    val onToggleShuffle: () -> Unit,
-    val onCycleRepeat: () -> Unit,
-    val onSkipTo: (Int) -> Unit,
-    val onRemove: (Int) -> Unit,
+    val onClose: () -> Unit = {},
+    val onTogglePlay: () -> Unit = {},
+    val onNext: () -> Unit = {},
+    val onPrevious: () -> Unit = {},
+    val onSeek: (Long) -> Unit = {},
+    val onToggleShuffle: () -> Unit = {},
+    val onCycleRepeat: () -> Unit = {},
+    val onSkipTo: (Int) -> Unit = {},
+    val onRemove: (Int) -> Unit = {},
+    /** Opens the options sheet for the song that is playing. */
+    val onSongOptions: () -> Unit = {},
+    /** Opens the sleep timer picker. */
+    val onSleepTimer: () -> Unit = {},
 )
+
+/** What fills the stage between the top bar and the scrubber. */
+enum class NowPlayingPanel { Hero, Queue, Sound }
 
 /** Spring the sheet opens, closes and settles on. Slightly underdamped: it lands, it does not ease. */
 val SheetSpring = spring<Float>(dampingRatio = 0.80f, stiffness = 240f)
@@ -132,8 +146,11 @@ val SheetSpring = spring<Float>(dampingRatio = 0.80f, stiffness = 240f)
  * - the sculpture and the title block scale and fade up slightly behind it, so the content
  *   arrives after the glass rather than with it.
  *
- * Dragging down anywhere (when the queue is closed) pulls the same [progress] back with the
- * finger; letting go either closes or springs back, taking fling velocity into account.
+ * Dragging down anywhere (when the sculpture is on stage) pulls the same [progress] back with
+ * the finger; letting go either closes or springs back, taking fling velocity into account.
+ *
+ * The stage swaps between three panels: the sculpture and title (hero), the queue, and the
+ * equalizer (Sound). The top bar toggles the last two; back returns to the hero.
  *
  * @param hazeState the app's backdrop source. Null (previews, or no blur) gives solid obsidian.
  */
@@ -144,21 +161,27 @@ fun Expanded3DNowPlayingSheet(
     progress: Animatable<Float, AnimationVector1D>,
     hazeState: HazeState?,
     actions: NowPlayingActions,
+    sound: EqSettings,
+    soundActions: SoundActions,
+    sleepTimer: SleepTimer,
     modifier: Modifier = Modifier,
+    initialPanel: NowPlayingPanel = NowPlayingPanel.Hero,
 ) {
-    var showQueue by rememberSaveable { mutableStateOf(false) }
-    val queueOpen = rememberUpdatedState(showQueue)
+    var panel by rememberSaveable { mutableStateOf(initialPanel) }
+    val currentPanel = rememberUpdatedState(panel)
     val close by rememberUpdatedState(actions.onClose)
-    // 0 = hero, 1 = queue. Read only in graphicsLayer lambdas and the two derived flags below.
-    val dock = animateFloatAsState(
-        targetValue = if (showQueue) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
-        label = "dock",
-    )
-    val heroVisible by remember { derivedStateOf { dock.value < 0.99f } }
-    val queueVisible by remember { derivedStateOf { dock.value > 0.01f } }
+    val panelSpring = spring<Float>(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+    // 0 = hidden, 1 = on stage. Read only in graphicsLayer lambdas and the derived flags below.
+    val queueIn = animateFloatAsState(if (panel == NowPlayingPanel.Queue) 1f else 0f, panelSpring, label = "queueIn")
+    val soundIn = animateFloatAsState(if (panel == NowPlayingPanel.Sound) 1f else 0f, panelSpring, label = "soundIn")
+    val heroVisible by remember { derivedStateOf { queueIn.value < 0.99f && soundIn.value < 0.99f } }
+    val queueVisible by remember { derivedStateOf { queueIn.value > 0.01f } }
+    val soundVisible by remember { derivedStateOf { soundIn.value > 0.01f } }
+    fun toggle(target: NowPlayingPanel) {
+        panel = if (panel == target) NowPlayingPanel.Hero else target
+    }
 
-    BackHandler(enabled = showQueue) { showQueue = false }
+    BackHandler(enabled = panel != NowPlayingPanel.Hero) { panel = NowPlayingPanel.Hero }
 
     val scope = rememberCoroutineScope()
     var dragX by remember { mutableFloatStateOf(0f) }
@@ -191,7 +214,7 @@ fun Expanded3DNowPlayingSheet(
             .pointerInput(Unit) {
                 val velocity = VelocityTracker()
                 fun settle(vy: Float) {
-                    if (queueOpen.value) return
+                    if (currentPanel.value != NowPlayingPanel.Hero) return
                     if (progress.value < 0.80f || vy > 1400f) {
                         close()
                     } else {
@@ -204,7 +227,7 @@ fun Expanded3DNowPlayingSheet(
                     onDragCancel = { settle(0f) },
                     onVerticalDrag = { change, dy ->
                         velocity.addPosition(change.uptimeMillis, change.position)
-                        if (!queueOpen.value) {
+                        if (currentPanel.value == NowPlayingPanel.Hero) {
                             scope.launch { progress.snapTo((progress.value - dy / size.height).coerceIn(0f, 1f)) }
                         }
                     },
@@ -246,24 +269,49 @@ fun Expanded3DNowPlayingSheet(
                     Box(Modifier.width(36.dp).height(4.dp).background(Color.White.copy(alpha = 0.22f), CircleShape))
                 }
 
-                // Top bar
-                Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GlassIconButton(Icons.Rounded.KeyboardArrowDown, "Minimize player", onClick = actions.onClose)
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        Eyebrow(
-                            if (state.queue.isNotEmpty()) "Now playing · ${state.currentIndex + 1} / ${state.queue.size}" else "Now playing",
-                            color = Color.White,
+                // Top bar. The label sits on the sheet's centre line whatever the buttons either side.
+                Box(Modifier.fillMaxWidth().height(52.dp)) {
+                    GlassIconButton(
+                        Icons.Rounded.KeyboardArrowDown,
+                        "Minimize player",
+                        modifier = Modifier.align(Alignment.CenterStart),
+                        onClick = actions.onClose,
+                    )
+                    Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Eyebrow("Now playing", color = Color.White)
+                        if (state.queue.isNotEmpty()) {
+                            Text(
+                                "${state.currentIndex + 1} / ${state.queue.size}",
+                                style = TimeStyle,
+                                color = AppTheme.extended.textSoft,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
+                    }
+                    Row(Modifier.align(Alignment.CenterEnd)) {
+                        val soundOn = panel == NowPlayingPanel.Sound
+                        GlassIconButton(
+                            icon = Icons.Rounded.Equalizer,
+                            description = when {
+                                soundOn -> "Hide equalizer"
+                                sound.enabled -> "Show equalizer, on"
+                                else -> "Show equalizer, off"
+                            },
+                            // Amber while the panel is open, or while the equalizer is shaping the sound.
+                            tint = if (soundOn || sound.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            onClick = { toggle(NowPlayingPanel.Sound) },
+                        )
+                        val queueOn = panel == NowPlayingPanel.Queue
+                        GlassIconButton(
+                            icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                            description = if (queueOn) "Hide queue" else "Show queue",
+                            tint = if (queueOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            onClick = { toggle(NowPlayingPanel.Queue) },
                         )
                     }
-                    GlassIconButton(
-                        icon = Icons.Rounded.QueueMusic,
-                        description = if (showQueue) "Hide queue" else "Show queue",
-                        tint = if (showQueue) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        onClick = { showQueue = !showQueue },
-                    )
                 }
 
-                // Stage: hero and queue share this space and cross over as `dock` moves.
+                // Stage: hero, queue and Sound share this space and cross over as their springs move.
                 Box(
                     Modifier
                         .weight(1f)
@@ -273,7 +321,7 @@ fun Expanded3DNowPlayingSheet(
                             detectHorizontalDragGestures(
                                 onDragStart = { dragX = 0f },
                                 onDragEnd = {
-                                    if (!queueOpen.value) {
+                                    if (currentPanel.value == NowPlayingPanel.Hero) {
                                         if (dragX > skipAt) actions.onPrevious() else if (dragX < -skipAt) actions.onNext()
                                     }
                                 },
@@ -284,18 +332,28 @@ fun Expanded3DNowPlayingSheet(
                     if (heroVisible) {
                         Column(
                             Modifier.fillMaxSize().graphicsLayer {
-                                // Arrives a beat behind the glass, and steps back when the queue opens.
+                                // Arrives a beat behind the glass, and steps back when a panel opens.
+                                val away = maxOf(queueIn.value, soundIn.value)
                                 val arrive = ((progress.value - 0.35f) / 0.65f).coerceIn(0f, 1f)
-                                alpha = arrive * (1f - dock.value * 2f).coerceIn(0f, 1f)
-                                val sc = lerp(0.84f, 1f, arrive) * lerp(1f, 0.94f, dock.value)
+                                alpha = arrive * (1f - away * 2f).coerceIn(0f, 1f)
+                                val sc = lerp(0.84f, 1f, arrive) * lerp(1f, 0.94f, away)
                                 scaleX = sc
                                 scaleY = sc
                             },
                         ) {
                             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 KineticGyroscope(Modifier.fillMaxSize())
+                                SleepChip(sleepTimer, onClick = actions.onSleepTimer, modifier = Modifier.align(Alignment.TopStart))
                             }
-                            TrackMeta(state.title, state.artist, state.album, direction)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                                TrackMeta(state.title, state.artist, state.album, direction, Modifier.weight(1f))
+                                GlassIconButton(
+                                    Icons.Rounded.MoreHoriz,
+                                    "Song options",
+                                    modifier = Modifier.padding(start = 8.dp),
+                                    onClick = actions.onSongOptions,
+                                )
+                            }
                             Spacer(Modifier.height(18.dp))
                         }
                     }
@@ -304,8 +362,18 @@ fun Expanded3DNowPlayingSheet(
                             s = state,
                             actions = actions,
                             modifier = Modifier.fillMaxSize().graphicsLayer {
-                                alpha = ((dock.value - 0.35f) / 0.65f).coerceIn(0f, 1f)
-                                translationY = lerp(16.dp.toPx(), 0f, dock.value)
+                                alpha = ((queueIn.value - 0.35f) / 0.65f).coerceIn(0f, 1f)
+                                translationY = lerp(16.dp.toPx(), 0f, queueIn.value)
+                            },
+                        )
+                    }
+                    if (soundVisible) {
+                        SoundPanel(
+                            settings = sound,
+                            actions = soundActions,
+                            modifier = Modifier.fillMaxSize().graphicsLayer {
+                                alpha = ((soundIn.value - 0.35f) / 0.65f).coerceIn(0f, 1f)
+                                translationY = lerp(16.dp.toPx(), 0f, soundIn.value)
                             },
                         )
                     }
@@ -365,7 +433,7 @@ private fun TimeRow(position: State<Long>, durationMs: Long) {
 private fun TrackMeta(title: String, artist: String, album: String, direction: Int, modifier: Modifier = Modifier) {
     AnimatedContent(
         targetState = Triple(title, artist, album),
-        modifier = modifier.fillMaxWidth().heightIn(min = 116.dp),
+        modifier = modifier.heightIn(min = 116.dp),
         contentAlignment = Alignment.BottomStart,
         transitionSpec = {
             val ease = FastOutSlowInEasing
@@ -531,14 +599,41 @@ private val PreviewState = PlayerUiState(
     currentIndex = 0,
 )
 
-private val PreviewActions = NowPlayingActions({}, {}, {}, {}, {}, {}, {}, {}, {})
-
 @Preview(name = "Now Playing", widthDp = 390, heightDp = 844)
 @Composable
 private fun NowPlayingPreview() {
     ZmusicTheme {
         val position = remember { mutableStateOf(92_000L) }
         val progress = remember { Animatable(1f) }
-        Expanded3DNowPlayingSheet(PreviewState, position, progress, hazeState = null, actions = PreviewActions)
+        Expanded3DNowPlayingSheet(
+            state = PreviewState,
+            position = position,
+            progress = progress,
+            hazeState = null,
+            actions = NowPlayingActions(),
+            sound = EqSettings(enabled = true, gainsDb = EqPreset.Rock.gainsDb),
+            soundActions = SoundActions(),
+            sleepTimer = SleepTimer.EndOfSong,
+        )
+    }
+}
+
+@Preview(name = "Now Playing, Sound panel", widthDp = 390, heightDp = 844)
+@Composable
+private fun NowPlayingSoundPreview() {
+    ZmusicTheme {
+        val position = remember { mutableStateOf(92_000L) }
+        val progress = remember { Animatable(1f) }
+        Expanded3DNowPlayingSheet(
+            state = PreviewState,
+            position = position,
+            progress = progress,
+            hazeState = null,
+            actions = NowPlayingActions(),
+            sound = EqSettings(enabled = true, gainsDb = EqPreset.Electronic.gainsDb, preampDb = -2f, bassDb = 3f),
+            soundActions = SoundActions(),
+            sleepTimer = SleepTimer.Off,
+            initialPanel = NowPlayingPanel.Sound,
+        )
     }
 }

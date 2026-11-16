@@ -3,7 +3,8 @@ package com.zmusic.app.ui.components
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,14 +36,17 @@ import com.zmusic.app.util.formatTime
 /**
  * Plain, scannable row. Spacing does the grouping. The current song is marked by colour, live
  * bars, and a wash of amber light with a bar on its leading edge that fades in when it starts.
- * Pass [number] to show a position in an ordered list.
+ * Pass [number] to show a position in an ordered list. A long press calls [onLongClick], which
+ * opens the song's options.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackRow(
     track: TrackEntity,
     isCurrent: Boolean,
     number: Int? = null,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val primary = MaterialTheme.colorScheme.primary
@@ -75,7 +79,12 @@ fun TrackRow(
                     }
                 }
             }
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClickLabel = "Play",
+                onLongClickLabel = if (onLongClick != null) "Song options" else null,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),

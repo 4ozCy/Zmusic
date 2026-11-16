@@ -2,13 +2,17 @@ package com.zmusic.app.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.zmusic.app.data.TrackEntity
@@ -34,11 +38,26 @@ fun TrackEntity.toMediaItem(): MediaItem = MediaItem.Builder()
     )
     .build()
 
+/** When playback should stop on its own. */
+sealed interface SleepTimer {
+    data object Off : SleepTimer
+
+    /** Pauses once [SystemClock.elapsedRealtime] reaches [endsAtElapsedMs]. */
+    data class At(val endsAtElapsedMs: Long) : SleepTimer
+
+    /** Pauses when the song playing now ends. */
+    data object EndOfSong : SleepTimer
+}
+
 /**
  * UI-side handle to the playback service. All calls are queued until the
  * MediaController finishes connecting, so early taps are not lost.
  * Must be used from the main thread.
+ *
+ * It lives in the app container, not in a screen, so a sleep timer keeps running with the app
+ * in the background.
  */
+@OptIn(UnstableApi::class) // PlaybackService is marked unstable because it builds the player.
 class PlayerController(context: Context) {
     private val mainExecutor = ContextCompat.getMainExecutor(context)
     private val handler = Handler(Looper.getMainLooper())
@@ -65,6 +84,13 @@ class PlayerController(context: Context) {
     /** Song starts seen so far: see [PlayerUiState.songStarts]. */
     private var songStarts = 0
 
+    /** Media ids of deleted songs, so a queue still filling in the background skips them. */
+    private val removedIds = HashSet<String>()
+
+    private val _sleepTimer = MutableStateFlow<SleepTimer>(SleepTimer.Off)
+    val sleepTimer: StateFlow<SleepTimer> = _sleepTimer.asStateFlow()
+    private val sleepCheck = Runnable { checkSleepTimer() }
+
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             val c = controller ?: return
@@ -73,7 +99,22 @@ class PlayerController(context: Context) {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying) failuresInARow = 0
+            if (!isPlaying) return
+            failuresInARow = 0
+            // While paused the phone may sleep, and the posted check sleeps with it. Resuming puts
+            // the timer back on real time. If its time passed with nothing playing, it has done its
+            // job: let the music the user just started play.
+            val timer = _sleepTimer.value as? SleepTimer.At ?: return
+            handler.removeCallbacks(sleepCheck)
+            val left = timer.endsAtElapsedMs - SystemClock.elapsedRealtime()
+            if (left > 0) handler.postDelayed(sleepCheck, left) else _sleepTimer.value = SleepTimer.Off
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && _sleepTimer.value == SleepTimer.EndOfSong) {
+                _sleepTimer.value = SleepTimer.Off
+                BugLog.i("Playback", "Sleep timer stopped playback at the end of the song")
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -182,7 +223,9 @@ class PlayerController(context: Context) {
     private fun fillQueue(c: MediaController, tracks: List<TrackEntity>, next: Int, left: Int, token: Int) {
         if (token != queueToken || left <= 0) return
         val n = minOf(FILL_BATCH, left)
-        c.addMediaItems(List(n) { tracks[(next + it) % tracks.size].toMediaItem() })
+        val batch = List(n) { tracks[(next + it) % tracks.size] }
+            .filter { removedIds.isEmpty() || it.mediaStoreId.toString() !in removedIds }
+        if (batch.isNotEmpty()) c.addMediaItems(batch.map { it.toMediaItem() })
         handler.postDelayed({ fillQueue(c, tracks, next + n, left - n, token) }, FILL_GAP_MS)
     }
 
@@ -204,13 +247,87 @@ class PlayerController(context: Context) {
     fun setShuffle(enabled: Boolean) = run { it.shuffleModeEnabled = enabled }
     fun toggleShuffle() = run { it.shuffleModeEnabled = !it.shuffleModeEnabled }
 
-    fun cycleRepeat() = run {
-        it.repeatMode = when (it.repeatMode) {
-            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-            else -> Player.REPEAT_MODE_OFF
+    fun cycleRepeat() = run { it.repeatMode = nextRepeatMode(it.repeatMode) }
+
+    /**
+     * Puts [track] straight after the current song, or plays it now if nothing is queued.
+     * With shuffle on, the player slots it into the shuffle order wherever it likes.
+     */
+    fun playNext(track: TrackEntity) = run { c ->
+        if (c.mediaItemCount == 0) playQueue(listOf(track), 0) else c.addMediaItem(c.currentMediaItemIndex + 1, track.toMediaItem())
+    }
+
+    /** Adds [track] to the end of the queue, or plays it now if nothing is queued. */
+    fun addToQueue(track: TrackEntity) = run { c ->
+        if (c.mediaItemCount == 0) playQueue(listOf(track), 0) else c.addMediaItem(track.toMediaItem())
+    }
+
+    /** Takes every copy of a deleted song out of the queue. If it was playing, the next one starts. */
+    fun removeTrack(mediaStoreId: Long) {
+        val id = mediaStoreId.toString()
+        removedIds += id
+        run { c ->
+            for (i in c.mediaItemCount - 1 downTo 0) {
+                if (c.getMediaItemAt(i).mediaId == id) c.removeMediaItem(i)
+            }
         }
     }
+
+    /**
+     * Refreshes the title, artist and album of a song already in the queue (after a rename).
+     * The file and its URI are unchanged, so the song keeps playing without a gap.
+     */
+    fun updateTrack(track: TrackEntity) = run { c ->
+        val id = track.mediaStoreId.toString()
+        for (i in 0 until c.mediaItemCount) {
+            val item = c.getMediaItemAt(i)
+            if (item.mediaId != id) continue
+            val md = item.mediaMetadata
+            val stale = md.title?.toString() != track.title ||
+                md.artist?.toString() != track.artist ||
+                md.albumTitle?.toString() != track.album
+            if (stale) c.replaceMediaItem(i, track.toMediaItem())
+        }
+    }
+
+    /** Pauses playback [minutes] from now. Replaces any timer already set. */
+    fun sleepIn(minutes: Int) {
+        cancelSleepTimer()
+        val delayMs = minutes * 60_000L
+        _sleepTimer.value = SleepTimer.At(SystemClock.elapsedRealtime() + delayMs)
+        handler.postDelayed(sleepCheck, delayMs)
+        BugLog.i("Playback", "Sleep timer set for $minutes min")
+    }
+
+    /** Pauses when the current song ends. The service does it on the player itself, so no next song leaks in. */
+    fun sleepAtEndOfSong() {
+        cancelSleepTimer()
+        _sleepTimer.value = SleepTimer.EndOfSong
+        run { it.sendCustomCommand(ZmusicCommands.stopAfterCurrent, stopAfterArgs(true)) }
+        BugLog.i("Playback", "Sleep timer set for the end of the song")
+    }
+
+    fun cancelSleepTimer() {
+        handler.removeCallbacks(sleepCheck)
+        if (_sleepTimer.value == SleepTimer.EndOfSong) {
+            run { it.sendCustomCommand(ZmusicCommands.stopAfterCurrent, stopAfterArgs(false)) }
+        }
+        _sleepTimer.value = SleepTimer.Off
+    }
+
+    private fun checkSleepTimer() {
+        val timer = _sleepTimer.value as? SleepTimer.At ?: return
+        val left = timer.endsAtElapsedMs - SystemClock.elapsedRealtime()
+        if (left > 0) {
+            handler.postDelayed(sleepCheck, left)
+            return
+        }
+        _sleepTimer.value = SleepTimer.Off
+        run { it.pause() }
+        BugLog.i("Playback", "Sleep timer paused playback")
+    }
+
+    private fun stopAfterArgs(enabled: Boolean) = Bundle().apply { putBoolean(ZmusicCommands.KEY_ENABLED, enabled) }
 
     private companion object {
         const val WINDOW_THRESHOLD = 400

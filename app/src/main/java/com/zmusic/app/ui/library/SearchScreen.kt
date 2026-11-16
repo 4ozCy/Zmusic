@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.Eyebrow
@@ -60,6 +61,7 @@ fun SearchScreen(
     playerState: PlayerUiState,
     player: PlayerController,
     contentPadding: PaddingValues,
+    onTrackOptions: (TrackEntity) -> Unit,
 ) {
     val query by vm.query.collectAsStateWithLifecycle()
     val results by vm.searchResults.collectAsStateWithLifecycle()
@@ -104,6 +106,7 @@ fun SearchScreen(
                         TrackRow(
                             track = track,
                             isCurrent = track.mediaStoreId.toString() == playerState.mediaId,
+                            onLongClick = { onTrackOptions(track) },
                         ) {
                             keyboard?.hide()
                             player.setShuffle(false)

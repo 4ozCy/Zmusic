@@ -39,6 +39,18 @@ Nocturnal liquid glass, typographic and cover-free. A deep obsidian base (`#0707
 
 The backdrop is an AGSL `RuntimeShader` on Android 13+ and a simpler Canvas gradient version below that (same hole, planets and astronaut, no lensing). The astronaut is a second, small shader drawn only in a square round the figure.
 
+### Equalizer
+
+The Now Playing sheet has a Sound panel next to the queue (the equalizer button in its top bar). The EQ runs in software inside ExoPlayer's audio sink (`EqualizerAudioProcessor`), not through the system `audiofx.Equalizer`, so it has the same bands and the same sound on every phone and never fights another app for a system effect.
+
+- Ten bands, 31 Hz to 16 kHz, ±12 dB each: octave-wide RBJ peaking filters in double precision. Neighbouring bands overlap, so a few correction passes set each filter until the response at every band centre equals its slider. The curve on screen comes from the same maths, so it passes through every slider.
+- Bass boost (a low shelf under 100 Hz, up to +10 dB) and a preamp (−12 to +6 dB).
+- Eleven presets. Moving any control switches the EQ on; double-tap a band to put it back to 0 dB.
+- A soft clipper above −1 dBFS rounds off boosts that would clip instead of letting them crack.
+- Off or flat, the audio passes through bit for bit.
+- The visuals' analyser sits after the EQ, so the sculptures react to what you hear.
+- Settings are saved. A change applies to the next audio buffer, so you hear it once the audio already queued for the speaker has played, a fraction of a second.
+
 ### Bug log
 
 The fourth tab is a console. `BugLog` records crashes (uncaught exceptions, written to disk before the process dies, so they are there on the next launch), playback errors, library scan failures, warnings such as a rejected shader or Visualizer, and a few milestones for context. Lines are timestamped and colour-coded by level, filterable, and a line with a stack trace expands when tapped. The log follows new output like a terminal, can be copied or cleared, keeps the last 400 entries, and never leaves the device. The Bugs tab shows a red dot while there is an error you have not looked at.
@@ -48,14 +60,20 @@ The fourth tab is a console. `BugLog` records crashes (uncaught exceptions, writ
 - MediaStore scan into Room, stable IDs, missing files flagged instead of deleted, scan throttle, manual rescan
 - Permission flow that explains first
 - Single ExoPlayer in `PlaybackService`: background playback, notification and lock-screen controls, audio focus, becoming-noisy handling
+- Shuffle and repeat buttons in the media notification and on the lock screen. Notifications are one colour, so each state has its own icon (a filled badge means on), and they follow changes made in the app
 - Queue (view, jump, remove), shuffle, repeat all/one/off. Repeat all is the default, so after the last song the queue starts over from the first
+- Song options: long-press any song or Recently added tile, or tap `⋯` in Now Playing. Play next, add to queue, share the file, rename the file, delete the file
+- Rename changes the file's name and keeps its extension. A song with a title tag keeps showing that title; an untagged song takes the new name. Delete removes the file from the phone and the song from the queue. Android 10 and later ask you to approve each change in a system dialog; Android 8 and 9 ask once for storage permission
+- Sleep timer (15, 30, 45, 60 or 90 minutes, or the end of the current song), from `⋯` in Now Playing. A chip on the stage counts down. "End of song" pauses inside the player, so the next song never starts
+- Equalizer with presets, bass boost and preamp (see above)
 - Home (library counters, daily mix, recently added), Library (A-Z with a jump rail), Search (debounced, top-artist links), Bugs (console), mini player, Now Playing
 - Large libraries queue a window around the tapped song first (100 before, 300 after) so it starts at once, then the rest of the list follows in batches of 250
 
 ## Not built yet
 
 - Lyrics and album art are intentionally not part of the app.
-- Playlists, favorites, history, sort/filter, drag-reorder queue, queue restore after process death, equalizer/effects, sleep timer, playback speed, backup/restore, settings, light theme.
+- Playlists, favorites, history, sort/filter, drag-reorder queue, queue restore after process death, tag editing, playback speed, backup/restore, settings, light theme.
+- With shuffle on, "Play next" joins the shuffle order instead of playing straight after the current song.
 
 ## Releases and signing
 
@@ -69,9 +87,12 @@ Gradle 8.9, JDK 17: `gradle assembleDebug`. Compose previews (light and dark) ar
 
 ```
 app/src/main/java/com/zmusic/app/
-  data/        Room entity, DAO, database, MediaStore scanner, repository
+  data/        Room entity, DAO, database, MediaStore scanner, repository, file rename/delete
   debug/       BugLog: the in-app console's store and crash handler
-  playback/    PlaybackService, PlayerController, LevelAudioProcessor, AudioLevels
+  playback/    PlaybackService, PlayerController, LevelAudioProcessor, AudioLevels, session commands
+  playback/eq/ equalizer: settings and presets, filter design, audio processor, store
+  ui/sound/    the Sound panel: band graph, sliders, view model
+  ui/songs/    song options sheet, rename and delete dialogs, their view model
   ui/theme/    seed-based colour schemes, type, shapes
   ui/components/  motion primitives, audio-reactive visuals, scrubber, backdrop, rows, mini player
   ui/          screens and navigation shell

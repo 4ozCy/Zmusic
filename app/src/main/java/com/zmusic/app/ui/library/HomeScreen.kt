@@ -76,6 +76,7 @@ fun HomeScreen(
     contentPadding: PaddingValues,
     onOpenLibrary: () -> Unit,
     onRefresh: () -> Unit,
+    onTrackOptions: (TrackEntity) -> Unit,
 ) {
     val mix = if (tracks == null) emptyList() else daily(tracks)
 
@@ -112,6 +113,7 @@ fun HomeScreen(
                                             position = i + 1,
                                             track = t,
                                             isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
+                                            onLongClick = { onTrackOptions(t) },
                                         ) {
                                             player.setShuffle(false)
                                             player.playQueue(recent, i)
@@ -129,6 +131,7 @@ fun HomeScreen(
                         track = t,
                         isCurrent = t.mediaStoreId.toString() == playerState.mediaId,
                         number = i + 1,
+                        onLongClick = { onTrackOptions(t) },
                     ) {
                         player.setShuffle(false)
                         player.playQueue(mix, i)
@@ -239,14 +242,25 @@ private fun StatTile(value: Int, label: String, modifier: Modifier = Modifier) {
  * the corner, an amber numeral and a rim of amber-to-indigo light.
  */
 @Composable
-private fun RecentTile(position: Int, track: TrackEntity, isCurrent: Boolean, onClick: () -> Unit) {
+private fun RecentTile(
+    position: Int,
+    track: TrackEntity,
+    isCurrent: Boolean,
+    onLongClick: () -> Unit,
+    onClick: () -> Unit,
+) {
     val amber = MaterialTheme.colorScheme.primary
     val shape = RoundedCornerShape(26.dp)
     Column(
         Modifier
             .width(164.dp)
             .height(152.dp)
-            .tilt3DOnPress(onClickLabel = "Play ${track.title}", onClick = onClick)
+            .tilt3DOnPress(
+                onClickLabel = "Play ${track.title}",
+                onLongClickLabel = "Song options",
+                onLongClick = onLongClick,
+                onClick = onClick,
+            )
             .frostedGlassCard(shape, surfaceAlpha = 0.12f)
             .then(if (isCurrent) Modifier.border(1.5.dp, CurrentRim, shape) else Modifier)
             .padding(horizontal = 16.dp, vertical = 16.dp),

@@ -1,6 +1,9 @@
 package com.zmusic.app.ui
 
 import android.Manifest
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,6 +12,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -60,6 +64,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.zmusic.app.AppContainer
+import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.debug.BugLog
 import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.bugs.BugLogScreen
@@ -70,6 +75,8 @@ import com.zmusic.app.ui.components.FloatingGlassNavAndMiniPlayer
 import com.zmusic.app.ui.components.GyroDeck
 import com.zmusic.app.ui.components.LocalAudioTracker
 import com.zmusic.app.ui.components.LocalGyroVariant
+import com.zmusic.app.ui.components.NoticeHost
+import com.zmusic.app.ui.components.rememberNoticeState
 import com.zmusic.app.ui.components.rememberAudioFrequencyTracker
 import com.zmusic.app.ui.library.HomeScreen
 import com.zmusic.app.ui.library.LibraryScreen
@@ -78,6 +85,15 @@ import com.zmusic.app.ui.library.SearchScreen
 import com.zmusic.app.ui.nowplaying.Expanded3DNowPlayingSheet
 import com.zmusic.app.ui.nowplaying.NowPlayingActions
 import com.zmusic.app.ui.nowplaying.SheetSpring
+import com.zmusic.app.ui.nowplaying.SleepTimerSheet
+import com.zmusic.app.ui.nowplaying.minutesLabel
+import com.zmusic.app.ui.nowplaying.sleepTimerLabel
+import com.zmusic.app.ui.songs.DeleteDialog
+import com.zmusic.app.ui.songs.RenameDialog
+import com.zmusic.app.ui.songs.SongActionsViewModel
+import com.zmusic.app.ui.songs.SongOptionActions
+import com.zmusic.app.ui.songs.SongOptionsSheet
+import com.zmusic.app.ui.sound.SoundViewModel
 import com.zmusic.app.ui.theme.ZmusicTheme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
@@ -213,10 +229,14 @@ fun ZmusicRoot(container: AppContainer) {
  * 1. Haze source: the backdrop shader plus the current screen. Everything in here can be blurred.
  * 2. Floating glass dock and mini player, blurring layer 1.
  * 3. The Now Playing sheet, also blurring layer 1.
+ * 4. The notice pill under the status bar.
  *
  * Layers 2 and 3 are siblings of the source, never children of it, which is what Haze requires.
  * One [Animatable] drives the whole expand transition: the sheet rises and un-tilts, the screen
  * behind it sinks back in depth, and the dock drops away.
+ *
+ * Song options, the rename and delete dialogs and the sleep timer picker open from here, so a
+ * long press on any screen and the options button in Now Playing share them.
  */
 @Composable
 private fun MainShell(
@@ -225,6 +245,7 @@ private fun MainShell(
     playerState: PlayerUiState,
     onFirstPlayerOpen: () -> Unit,
 ) {
+    val context = LocalContext.current
     val player = container.player
     val tracks by vm.tracks.collectAsStateWithLifecycle()
     val recent by vm.recentlyAdded.collectAsStateWithLifecycle()
@@ -232,6 +253,55 @@ private fun MainShell(
     val scanError by vm.scanError.collectAsStateWithLifecycle()
     // One position ticker shared by the mini player and the sheet. Read only in draw lambdas.
     val position = player.position.collectAsStateWithLifecycle(initialValue = 0L)
+    val sleepTimer by player.sleepTimer.collectAsStateWithLifecycle()
+
+    val soundVm: SoundViewModel = viewModel(factory = viewModelFactory { initializer { SoundViewModel(container.equalizer) } })
+    val sound by soundVm.settings.collectAsStateWithLifecycle()
+    val songVm: SongActionsViewModel = viewModel(
+        factory = viewModelFactory { initializer { SongActionsViewModel(container.repository, player) } },
+    )
+    val songState by songVm.state.collectAsStateWithLifecycle()
+
+    val notices = rememberNoticeState()
+    LaunchedEffect(songVm) { songVm.notices.collect { notices.show(it) } }
+
+    // Android's own prompts for a rename or delete: a system dialog, or a storage permission on 9 and older.
+    val approvalLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        songVm.onApprovalResult(result.resultCode == Activity.RESULT_OK)
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        songVm.onPermissionResult(granted)
+    }
+    LaunchedEffect(songState.approval) {
+        val request = songState.approval ?: return@LaunchedEffect
+        songVm.onApprovalLaunched()
+        try {
+            approvalLauncher.launch(IntentSenderRequest.Builder(request).build())
+        } catch (e: ActivityNotFoundException) {
+            BugLog.w("Files", "Could not show Android's confirmation", e)
+            songVm.onApprovalResult(false)
+        }
+    }
+    LaunchedEffect(songState.permission) {
+        val permission = songState.permission ?: return@LaunchedEffect
+        songVm.onPermissionRequested()
+        permissionLauncher.launch(permission)
+    }
+
+    // Which song a sheet or dialog is about, by id, so they survive rotation and close by
+    // themselves if the song leaves the library.
+    var optionsId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var optionsFromPlayer by rememberSaveable { mutableStateOf(false) }
+    var renameId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var deleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showSleepTimer by rememberSaveable { mutableStateOf(false) }
+    fun find(id: Long?): TrackEntity? = if (id == null) null else tracks?.firstOrNull { it.mediaStoreId == id }
+    val openOptions: (TrackEntity) -> Unit = remember {
+        { t ->
+            optionsFromPlayer = false
+            optionsId = t.mediaStoreId
+        }
+    }
 
     val nav = rememberNavController()
     val hazeState = remember { HazeState() }
@@ -286,6 +356,11 @@ private fun MainShell(
             onCycleRepeat = player::cycleRepeat,
             onSkipTo = player::skipTo,
             onRemove = player::removeAt,
+            onSongOptions = {
+                optionsFromPlayer = true
+                optionsId = player.state.value.mediaId?.toLongOrNull()
+            },
+            onSleepTimer = { showSleepTimer = true },
         )
     }
 
@@ -321,6 +396,7 @@ private fun MainShell(
                         contentPadding = contentPadding,
                         onOpenLibrary = { go("library") },
                         onRefresh = { vm.refresh(force = true) },
+                        onTrackOptions = openOptions,
                     )
                 }
                 composable("library") {
@@ -332,9 +408,10 @@ private fun MainShell(
                         scanError = scanError,
                         contentPadding = contentPadding,
                         onRefresh = { vm.refresh(force = true) },
+                        onTrackOptions = openOptions,
                     )
                 }
-                composable("search") { SearchScreen(vm, playerState, player, contentPadding) }
+                composable("search") { SearchScreen(vm, playerState, player, contentPadding, onTrackOptions = openOptions) }
                 composable(BUGS_ROUTE) { BugLogScreen(contentPadding) }
             }
         }
@@ -365,7 +442,83 @@ private fun MainShell(
                 progress = sheet,
                 hazeState = hazeState,
                 actions = actions,
+                sound = sound,
+                soundActions = soundVm.actions,
+                sleepTimer = sleepTimer,
             )
         }
+
+        NoticeHost(notices, Modifier.align(Alignment.TopCenter))
+    }
+
+    find(optionsId)?.let { track ->
+        SongOptionsSheet(
+            track = track,
+            onDismiss = { optionsId = null },
+            sleepDetail = if (optionsFromPlayer) sleepTimerLabel(sleepTimer) ?: "Off" else null,
+            actions = SongOptionActions(
+                onPlayNext = if (optionsFromPlayer) null else ({ songVm.playNext(track) }),
+                onAddToQueue = if (optionsFromPlayer) null else ({ songVm.addToQueue(track) }),
+                onSleepTimer = if (optionsFromPlayer) ({ showSleepTimer = true }) else null,
+                onShare = { shareSong(context, track) },
+                onRename = { renameId = track.mediaStoreId },
+                onDelete = { deleteId = track.mediaStoreId },
+            ),
+        )
+    }
+    find(renameId)?.let { track ->
+        RenameDialog(
+            track = track,
+            onDismiss = { renameId = null },
+            onRename = { input ->
+                renameId = null
+                songVm.rename(track, input)
+            },
+        )
+    }
+    find(deleteId)?.let { track ->
+        DeleteDialog(
+            track = track,
+            onDismiss = { deleteId = null },
+            onDelete = {
+                deleteId = null
+                songVm.delete(track)
+            },
+        )
+    }
+    if (showSleepTimer) {
+        SleepTimerSheet(
+            timer = sleepTimer,
+            onDismiss = { showSleepTimer = false },
+            onMinutes = { minutes ->
+                player.sleepIn(minutes)
+                notices.show("Playback stops in ${minutesLabel(minutes)}")
+            },
+            onEndOfSong = {
+                player.sleepAtEndOfSong()
+                notices.show("Playback stops after this song")
+            },
+            onOff = {
+                player.cancelSleepTimer()
+                notices.show("Sleep timer off")
+            },
+        )
+    }
+}
+
+/** Hands the song's file to another app (messages, Drive, Bluetooth) through the share sheet. */
+private fun shareSong(context: Context, track: TrackEntity) {
+    val uri = Uri.parse(track.uri)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = track.mimeType ?: "audio/*"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TITLE, track.title)
+        clipData = ClipData.newRawUri(track.title, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    try {
+        context.startActivity(Intent.createChooser(send, "Share “${track.title}”"))
+    } catch (e: ActivityNotFoundException) {
+        BugLog.w("Share", "No app can receive the file", e)
     }
 }
