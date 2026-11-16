@@ -17,20 +17,29 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
 
+    /**
+     * The whole library, read once and shared. Without this each flow below that something is
+     * watching keeps its own Room query, and every change to the table reads the whole library
+     * from disk once per flow.
+     */
+    private val library = repo.observeAll()
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+
     /** null = still loading the first emission. */
-    val tracks: StateFlow<List<TrackEntity>?> = repo.observeAll()
+    val tracks: StateFlow<List<TrackEntity>?> = library
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val recentlyAdded: StateFlow<List<TrackEntity>> = repo.observeRecentlyAdded(15)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val albums: StateFlow<List<AlbumSummary>> = repo.observeAll()
+    val albums: StateFlow<List<AlbumSummary>> = library
         .map { list ->
             list.groupBy { it.albumId }
                 .map { (id, ts) ->
@@ -49,7 +58,7 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Most common artists, shown as quick suggestions on the Search screen. */
-    val topArtists: StateFlow<List<String>> = repo.observeAll()
+    val topArtists: StateFlow<List<String>> = library
         .map { list ->
             list.groupingBy { it.artist }.eachCount()
                 .filterKeys { it != "Unknown artist" }

@@ -183,8 +183,9 @@ internal fun KineticEmblem(variant: GyroVariant, modifier: Modifier = Modifier, 
                 if (fine) {
                     for (c in 0 until model.glowCount) {
                         shape.rewind()
-                        for (i in 0 until model.count) {
-                            if (model.glow[i] == c + 1 && model.argb[i] ushr 24 != 0) trace(model, i, shape)
+                        for (k in model.glowStart[c] until model.glowStart[c + 1]) {
+                            val i = model.glowMembers[k]
+                            if (model.argb[i] ushr 24 != 0) trace(model, i, shape)
                         }
                         val argb = model.glowArgb[c]
                         val alpha = argb ushr 24

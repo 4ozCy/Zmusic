@@ -55,6 +55,16 @@ The Now Playing sheet has a Sound panel next to the queue (the equalizer button 
 
 The fourth tab is a console. `BugLog` records crashes (uncaught exceptions, written to disk before the process dies, so they are there on the next launch), playback errors, library scan failures, warnings such as a rejected shader or Visualizer, and a few milestones for context. Lines are timestamped and colour-coded by level, filterable, and a line with a stack trace expands when tapped. The log follows new output like a terminal, can be copied or cleared, keeps the last 400 entries, and never leaves the device. The Bugs tab shows a red dot while there is an error you have not looked at.
 
+### Performance notes
+
+The backdrop and the sculptures redraw every frame, so a few rules keep that cheap:
+
+- Shaders only do per-pixel work. Anything that is the same for every pixel (the planets' orbits, the astronaut's pose and light) is worked out once a frame in Kotlin and passed in as uniforms.
+- Once the Now Playing sheet is fully open on Android 12L+, it is an opaque pane that paints its own blurred copy of the app behind it, so the copy underneath is hidden (alpha 0) and the backdrop shader runs once a frame instead of twice. Haze still blurs it, because it draws the same recorded layer.
+- The screens get only the playing song's id, not the whole player state, so play/pause or the queue filling in never recomposes the lists.
+- A library scan writes only rows that changed, so a rescan that finds nothing new does not make Room reload the library for every screen. One shared query feeds all the library flows.
+- `app/src/main/baseline-prof.txt` asks ART to compile the app's own code ahead of time, so the per-frame code is not interpreted for the first minutes after an install.
+
 ## What works
 
 - MediaStore scan into Room, stable IDs, missing files flagged instead of deleted, scan throttle, manual rescan

@@ -1,0 +1,6 @@
+# Ask ART to compile all of the app's own code ahead of time instead of interpreting it until
+# the JIT warms up. Most of it runs every frame (the sculptures, the backdrop's host code, the
+# audio analysis), so the first minutes after an install or update are when stutter would show.
+# The libraries bring their own profiles; this covers com.zmusic.app. ProfileInstaller writes it
+# for sideloaded installs too.
+HSPLcom/zmusic/app/**->**(**)**

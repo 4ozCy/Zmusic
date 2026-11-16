@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import com.zmusic.app.data.TrackEntity
 import com.zmusic.app.playback.PlayerController
-import com.zmusic.app.playback.PlayerUiState
 import com.zmusic.app.ui.components.HairlineDivider
 import com.zmusic.app.ui.components.RescanButton
 import com.zmusic.app.ui.components.ScreenHeader
@@ -64,12 +63,13 @@ private data class LetterGroup(
  * rows are bare type, and a slim glass rail on the right edge jumps between letters (tap or drag).
  * A long press on a song opens its options.
  *
+ * @param currentId MediaStore id of the song that is playing, or null.
  * @param contentPadding status bar at the top, floating dock and mini player at the bottom.
  */
 @Composable
 fun LibraryScreen(
     tracks: List<TrackEntity>?,
-    playerState: PlayerUiState,
+    currentId: Long?,
     player: PlayerController,
     scanning: Boolean,
     scanError: String?,
@@ -81,8 +81,13 @@ fun LibraryScreen(
     // the full list so tapping plays from the right place. List item 0 is the screen header.
     val groups = remember(tracks) {
         var next = 1
+        // One string per letter rather than one per song.
+        val names = HashMap<Char, String>()
         tracks.orEmpty().withIndex()
-            .groupBy { iv -> iv.value.title.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString() ?: "#" }
+            .groupBy { iv ->
+                val letter = iv.value.title.firstOrNull { it.isLetter() }?.uppercaseChar()
+                if (letter == null) "#" else names.getOrPut(letter) { letter.toString() }
+            }
             .map { (letter, rows) ->
                 LetterGroup(letter, next, rows).also { next += rows.size + 1 }
             }
@@ -130,7 +135,7 @@ fun LibraryScreen(
                     items(group.rows, key = { it.value.mediaStoreId }, contentType = { "track" }) { iv ->
                         TrackRow(
                             track = iv.value,
-                            isCurrent = iv.value.mediaStoreId.toString() == playerState.mediaId,
+                            isCurrent = iv.value.mediaStoreId == currentId,
                             modifier = if (showRail) Modifier.padding(end = 22.dp) else Modifier,
                             onLongClick = { onTrackOptions(iv.value) },
                         ) {

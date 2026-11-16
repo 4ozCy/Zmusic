@@ -22,7 +22,9 @@ import com.zmusic.app.playback.AudioFrequencyTracker
 import com.zmusic.app.ui.theme.Nocturne
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 private const val TAU = 6.2831855f
 
@@ -40,19 +42,34 @@ private const val REACH = 3.1f
  *   soft contact shadow on the parts behind it. The gold visor shows a small bright arc of the
  *   disc and a glint. The chest unit's amber light breathes with the bass.
  *
- *   uCenter, uScale, uAngle  where the figure is on screen (px), px per unit, and its roll
- *   uLight                   unit vector on screen from the figure toward the hole
- *   uGain                    bass, which brightens the key light
- *   uTime                    limb drift and the tether's slow wave
+ *   uCenter, uScale      where the figure is on screen (px) and px per unit
+ *   uRot                 cos and sin of minus its roll: turns screen space into the figure's frame
+ *   uL, uH, uLxy         in the figure's frame: the unit vector toward the hole (the key light),
+ *                        the Blinn half vector between it and the viewer, and its xy normalised
+ *   uArm1/2, uHand1/2    elbow and wrist (xy, zw), then the end of the glove, of each arm
+ *   uLeg1/2, uFoot1/2    knee and ankle, then the toe of the boot, of each leg
+ *   uGain                bass, which brightens the key light
+ *   uTime                the tether's slow wave
  *
- * It is drawn only inside a square round the figure, so it costs almost nothing.
+ * Everything that is the same for every pixel (the pose, the light) is worked out once a frame
+ * by AstronautPose. It is drawn only inside a square round the figure, so it costs very little.
  */
 private const val ASTRONAUT_AGSL = """
 uniform float2 uCenter;
 uniform float uScale;
-uniform float uAngle;
+uniform float2 uRot;
 uniform float uTime;
-uniform float2 uLight;
+uniform float3 uL;
+uniform float3 uH;
+uniform float2 uLxy;
+uniform float4 uArm1;
+uniform float2 uHand1;
+uniform float4 uArm2;
+uniform float2 uHand2;
+uniform float4 uLeg1;
+uniform float2 uFoot1;
+uniform float4 uLeg2;
+uniform float2 uFoot2;
 uniform float uGain;
 layout(color) uniform half4 uAmber;
 layout(color) uniform half4 uIndigo;
@@ -102,11 +119,9 @@ float3 shade(float3 n, float3 albedo, float3 L, float3 key, float3 fill, float3 
     float wrap = max(ndl + 0.2, 0.0) / 1.2;
     float diff = wrap * wrap;
     float2 nl = n.xy / max(length(n.xy), 1e-4);
-    float2 ll = L.xy / max(length(L.xy), 1e-4);
-    float rim = pow(1.0 - n.z, 2.5) * smoothstep(0.05, 1.0, dot(nl, ll));
+    float rim = pow(1.0 - n.z, 2.5) * smoothstep(0.05, 1.0, dot(nl, uLxy));
     float fl = max(dot(n, float3(-0.36, 0.56, 0.75)), 0.0);
-    float3 h = normalize(L + float3(0.0, 0.0, 1.0));
-    float spec = pow(max(dot(n, h), 0.0), gloss);
+    float spec = pow(max(dot(n, uH), 0.0), gloss);
     return albedo * (key * diff + fill * fl + amb) + key * (rim * 1.4 * (0.4 + 0.6 * albedo.g) + spec * 0.25);
 }
 
@@ -140,11 +155,11 @@ float4 limb(float4 acc, float2 q, float2 a, float2 b, float ra, float rb, float 
 
 half4 main(float2 fragCoord) {
     // Figure space: units of about a helmet's width, y up, origin at the chest.
-    float2 q = rot(fragCoord - uCenter, -uAngle) / uScale;
+    float2 p = fragCoord - uCenter;
+    float2 q = float2(uRot.x * p.x - uRot.y * p.y, uRot.y * p.x + uRot.x * p.y) / uScale;
     q.y = -q.y;
     float aa = 0.9 / uScale;
-    float2 lw = rot(uLight, -uAngle);
-    float3 L = normalize(float3(lw.x, -lw.y, -0.32));
+    float3 L = uL;
 
     float3 amber = float3(uAmber.rgb * uAmber.rgb);
     float3 indigo = float3(uIndigo.rgb * uIndigo.rgb);
@@ -154,28 +169,25 @@ half4 main(float2 fragCoord) {
     float3 amb = slate * 0.04;
 
     // The relaxed crouch a body settles into without gravity: arms float up and out with the
-    // elbows bent, knees bent. Each limb drifts on its own slow beat (all periods divide an hour).
+    // elbows bent, knees bent. Shoulders and hips are fixed; the joints below them drift on
+    // their own slow beats (see AstronautPose).
     float t = uTime;
-    float a1 = 0.10 * sin(t * 0.6981317);
-    float a2 = 0.12 * sin(t * 0.5235988 + 1.3);
-    float l1 = 0.06 * sin(t * 0.6283185 + 2.1);
-    float l2 = 0.08 * sin(t * 0.4188790 + 0.4);
     float2 s1 = float2(-0.52, 0.50);
-    float2 e1 = s1 + rot(float2(-0.53, -0.40), a1);
-    float2 w1 = e1 + rot(float2(-0.10, 0.50), a1 * 1.6);
-    float2 g1 = w1 + rot(float2(-0.02, 0.14), a1 * 1.6);
+    float2 e1 = uArm1.xy;
+    float2 w1 = uArm1.zw;
+    float2 g1 = uHand1;
     float2 s2 = float2(0.52, 0.50);
-    float2 e2 = s2 + rot(float2(0.54, -0.32), a2);
-    float2 w2 = e2 + rot(float2(0.16, 0.50), a2 * 1.5);
-    float2 g2 = w2 + rot(float2(0.03, 0.14), a2 * 1.5);
+    float2 e2 = uArm2.xy;
+    float2 w2 = uArm2.zw;
+    float2 g2 = uHand2;
     float2 h1 = float2(-0.24, -0.74);
-    float2 k1 = h1 + rot(float2(-0.18, -0.71), l1);
-    float2 f1 = k1 + rot(float2(0.12, -0.67), l1 * 1.4);
-    float2 t1 = f1 + rot(float2(-0.20, -0.10), l1 * 1.4);
+    float2 k1 = uLeg1.xy;
+    float2 f1 = uLeg1.zw;
+    float2 t1 = uFoot1;
     float2 h2 = float2(0.24, -0.74);
-    float2 k2 = h2 + rot(float2(0.31, -0.66), l2);
-    float2 f2 = k2 + rot(float2(-0.13, -0.68), l2 * 1.4);
-    float2 t2 = f2 + rot(float2(0.22, -0.08), l2 * 1.4);
+    float2 k2 = uLeg2.xy;
+    float2 f2 = uLeg2.zw;
+    float2 t2 = uFoot2;
 
     float3 suit = float3(0.70, 0.70, 0.68);
     float3 pack = float3(0.58, 0.58, 0.58);
@@ -273,14 +285,35 @@ half4 main(float2 fragCoord) {
  * Where the astronaut is, this frame. A pure function of the tracker's clock, so there is no
  * state to save, nothing allocates, and it stops with the tracker when motion is turned off.
  * Every period divides an hour, so the clock's hourly wrap is invisible.
+ *
+ * [rig] adds what the shader needs in the figure's own frame (units of about a helmet's width,
+ * y up, origin at the chest). None of it changes from pixel to pixel, so it is worked out here
+ * once instead of in the shader for every pixel of the figure.
  */
-private class AstronautPose {
+internal class AstronautPose {
     var x = 0f
     var y = 0f
     var angle = 0f
     var scale = 1f
     var lightX = 0f
     var lightY = -1f
+
+    /** Cosine and sine of minus [angle]: they turn screen space into the figure's frame. */
+    var rotCos = 1f
+        private set
+    var rotSin = 0f
+        private set
+
+    /** Unit vector toward the hole, the key light; the Blinn half vector between it and the viewer; its xy, normalised. */
+    val light = FloatArray(3)
+    val half = FloatArray(3)
+    val lightXY = FloatArray(2)
+
+    /**
+     * The joints that drift, 2 floats each: elbow, wrist and glove end of the far arm, then the
+     * near arm; knee, ankle and toe of the far leg, then the near leg.
+     */
+    val joints = FloatArray(24)
 
     fun update(seconds: Float, w: Float, h: Float) {
         // A slow drift through the lower half of the screen, turning over every five minutes.
@@ -293,6 +326,59 @@ private class AstronautPose {
         val len = hypot(dx, dy).coerceAtLeast(1f)
         lightX = dx / len
         lightY = dy / len
+    }
+
+    /** Works out the shader's view of the pose. Call after [update] with the same [seconds]. */
+    fun rig(seconds: Float) {
+        rotCos = cos(-angle)
+        rotSin = sin(-angle)
+        // The light, turned into the figure's frame (where y points up) and tipped behind it.
+        val lx = rotCos * lightX - rotSin * lightY
+        val ly = rotSin * lightX + rotCos * lightY
+        unit(lx, -ly, -0.32f, light)
+        unit(light[0], light[1], light[2] + 1f, half)
+        val flat = max(hypot(light[0], light[1]), 1e-4f)
+        lightXY[0] = light[0] / flat
+        lightXY[1] = light[1] / flat
+
+        // Each limb drifts on its own slow beat (all periods divide an hour).
+        val t = seconds
+        val a1 = 0.10f * sin(t * 0.6981317f)
+        val a2 = 0.12f * sin(t * 0.5235988f + 1.3f)
+        val l1 = 0.06f * sin(t * 0.6283185f + 2.1f)
+        val l2 = 0.08f * sin(t * 0.4188790f + 0.4f)
+        chain(0, -0.52f, 0.50f, -0.53f, -0.40f, a1, -0.10f, 0.50f, -0.02f, 0.14f, a1 * 1.6f)
+        chain(6, 0.52f, 0.50f, 0.54f, -0.32f, a2, 0.16f, 0.50f, 0.03f, 0.14f, a2 * 1.5f)
+        chain(12, -0.24f, -0.74f, -0.18f, -0.71f, l1, 0.12f, -0.67f, -0.20f, -0.10f, l1 * 1.4f)
+        chain(18, 0.24f, -0.74f, 0.31f, -0.66f, l2, -0.13f, -0.68f, 0.22f, -0.08f, l2 * 1.4f)
+    }
+
+    /**
+     * Three joints hanging off a fixed root ([rx], [ry]): the first segment ([ux], [uy]) turned
+     * by [a], the next two ([vx], [vy]) and ([ex], [ey]) by [b]. Stored at [at] in [joints].
+     */
+    private fun chain(at: Int, rx: Float, ry: Float, ux: Float, uy: Float, a: Float, vx: Float, vy: Float, ex: Float, ey: Float, b: Float) {
+        val ca = cos(a)
+        val sa = sin(a)
+        val cb = cos(b)
+        val sb = sin(b)
+        val jx = rx + ca * ux - sa * uy
+        val jy = ry + sa * ux + ca * uy
+        val kx = jx + cb * vx - sb * vy
+        val ky = jy + sb * vx + cb * vy
+        joints[at] = jx
+        joints[at + 1] = jy
+        joints[at + 2] = kx
+        joints[at + 3] = ky
+        joints[at + 4] = kx + cb * ex - sb * ey
+        joints[at + 5] = ky + sb * ex + cb * ey
+    }
+
+    private fun unit(x: Float, y: Float, z: Float, out: FloatArray) {
+        val len = sqrt(x * x + y * y + z * z)
+        out[0] = x / len
+        out[1] = y / len
+        out[2] = z / len
     }
 }
 
@@ -327,12 +413,25 @@ private fun AgslAstronaut(tracker: AudioFrequencyTracker, shader: RuntimeShader,
             val brush = ShaderBrush(shader)
             onDrawBehind {
                 tracker.frame.longValue // redraw every frame without recomposing
-                pose.update(tracker.seconds, size.width, size.height)
+                val t = tracker.seconds
+                pose.update(t, size.width, size.height)
+                pose.rig(t)
                 shader.setFloatUniform("uCenter", pose.x, pose.y)
                 shader.setFloatUniform("uScale", pose.scale)
-                shader.setFloatUniform("uAngle", pose.angle)
-                shader.setFloatUniform("uTime", tracker.seconds)
-                shader.setFloatUniform("uLight", pose.lightX, pose.lightY)
+                shader.setFloatUniform("uRot", pose.rotCos, pose.rotSin)
+                shader.setFloatUniform("uTime", t)
+                shader.setFloatUniform("uL", pose.light[0], pose.light[1], pose.light[2])
+                shader.setFloatUniform("uH", pose.half[0], pose.half[1], pose.half[2])
+                shader.setFloatUniform("uLxy", pose.lightXY[0], pose.lightXY[1])
+                val j = pose.joints
+                shader.setFloatUniform("uArm1", j[0], j[1], j[2], j[3])
+                shader.setFloatUniform("uHand1", j[4], j[5])
+                shader.setFloatUniform("uArm2", j[6], j[7], j[8], j[9])
+                shader.setFloatUniform("uHand2", j[10], j[11])
+                shader.setFloatUniform("uLeg1", j[12], j[13], j[14], j[15])
+                shader.setFloatUniform("uFoot1", j[16], j[17])
+                shader.setFloatUniform("uLeg2", j[18], j[19], j[20], j[21])
+                shader.setFloatUniform("uFoot2", j[22], j[23])
                 shader.setFloatUniform("uGain", tracker.bass.value)
                 val half = pose.scale * REACH
                 drawRect(brush, topLeft = Offset(pose.x - half, pose.y - half), size = Size(2f * half, 2f * half))

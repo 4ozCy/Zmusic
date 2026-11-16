@@ -113,6 +113,20 @@ internal class EmblemModel private constructor(
     val glowArgb = IntArray(glowCount)
     val glowWidth = FloatArray(glowCount)
 
+    /**
+     * The items of each halo class in item order, worked out once so drawing a halo need not
+     * look through every item: class `c` (1 or more) is `glowMembers[glowStart[c - 1] until glowStart[c]]`.
+     */
+    val glowStart = IntArray(glowCount + 1)
+    val glowMembers: IntArray = run {
+        for (i in 0 until count) if (glow[i] in 1..glowCount) glowStart[glow[i]]++
+        for (c in 1..glowCount) glowStart[c] += glowStart[c - 1]
+        val members = IntArray(glowStart[glowCount])
+        val next = glowStart.copyOf()
+        for (i in 0 until count) if (glow[i] in 1..glowCount) members[next[glow[i] - 1]++] = i
+        members
+    }
+
     private val dynVertex = g.dynVertex.trim()
     private val dyn = g.dyn.trim()
     private val swayVertex = g.swayVertex.trim()

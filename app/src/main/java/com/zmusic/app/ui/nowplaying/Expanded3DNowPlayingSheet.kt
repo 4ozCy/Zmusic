@@ -418,8 +418,10 @@ fun Expanded3DNowPlayingSheet(
 @Composable
 private fun TimeRow(position: State<Long>, durationMs: Long) {
     val c = Color.White
+    // The position ticks four times a second, the clock only changes once: recompose on that.
+    val elapsed by remember(position) { derivedStateOf { formatTime(position.value) } }
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(formatTime(position.value), style = TimeStyle, color = c)
+        Text(elapsed, style = TimeStyle, color = c)
         Text(formatTime(durationMs), style = TimeStyle, color = c)
     }
 }
