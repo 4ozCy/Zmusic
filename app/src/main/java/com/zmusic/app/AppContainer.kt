@@ -9,6 +9,7 @@ import com.zmusic.app.data.ZmusicDatabase
 import com.zmusic.app.playback.PlayerController
 import com.zmusic.app.playback.VolumeShortcutStore
 import com.zmusic.app.playback.eq.EqualizerStore
+import com.zmusic.app.update.Updater
 
 /** Manual dependency container. Small enough that Hilt would add more than it saves right now. */
 class AppContainer(context: Context) {
@@ -31,4 +32,7 @@ class AppContainer(context: Context) {
 
     /** Written by the options sheet in Now Playing, read by the playback service. */
     val volumeShortcuts: VolumeShortcutStore by lazy { VolumeShortcutStore(appContext) }
+
+    /** In-app updates from GitHub Releases. Also reached by the install result receiver. */
+    val updater: Updater by lazy { Updater(appContext) }
 }

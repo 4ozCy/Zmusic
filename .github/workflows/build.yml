@@ -39,14 +39,18 @@ jobs:
         run: gradle assembleRelease -PverCode=${{ github.run_number }} --stacktrace
 
       - name: Name the APK
-        run: cp app/build/outputs/apk/release/app-release.apk Zmusic-v0.2.${{ github.run_number }}.apk
+        run: cp app/build/outputs/apk/release/app-release.apk Zmusic-v0.3.${{ github.run_number }}.apk
 
       # The APK is attached directly to the Release, so it downloads as a plain .apk, not a zip.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.${{ github.run_number }}
-          name: Zmusic v0.2.${{ github.run_number }}
-          body: Signed release build. Download the .apk below and install it.
-          files: Zmusic-v0.2.${{ github.run_number }}.apk
+          tag_name: v0.3.${{ github.run_number }}
+          name: Zmusic v0.3.${{ github.run_number }}
+          # The app shows this as "What's new" in its update prompt (see update/Releases.cleanNotes).
+          body: |
+            ${{ github.event.head_commit.message }}
+
+            Signed release build. Download the .apk below and install it.
+          files: Zmusic-v0.3.${{ github.run_number }}.apk
           make_latest: true

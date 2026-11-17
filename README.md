@@ -4,6 +4,8 @@ Offline-first Android music player. Kotlin, Jetpack Compose (Material 3), Media3
 
 **Download:** grab the latest `.apk` from the [Releases](../../releases) page (plain APK, not zipped).
 
+**Updates:** from build 0.3.x on, the app checks Releases when you open it and offers new builds itself. Tap Update, then Update again on Android's screen. The first time, Android asks you to allow Zmusic to install apps.
+
 > Built by CI and not yet confirmed on every device. If something breaks, open an issue or paste the log.
 
 ## Design
