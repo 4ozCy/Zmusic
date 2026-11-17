@@ -96,6 +96,7 @@ import com.zmusic.app.ui.songs.SongOptionsSheet
 import com.zmusic.app.ui.songs.VOLUME_SHORTCUTS_ON
 import com.zmusic.app.ui.sound.SoundViewModel
 import com.zmusic.app.ui.theme.ZmusicTheme
+import com.zmusic.app.ui.update.UpdateHost
 import com.zmusic.app.ui.welcome.WelcomeScreen
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
@@ -232,6 +233,8 @@ fun ZmusicRoot(container: AppContainer) {
                 // On top of everything, so the app is already laid out underneath and shows
                 // through as the welcome fades.
                 if (welcome) WelcomeScreen(onFinished = { welcome = false })
+                // After the welcome, so an update offer never lands on top of it.
+                else UpdateHost(container.updater)
             }
         }
     }
