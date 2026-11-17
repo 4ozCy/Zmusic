@@ -77,6 +77,7 @@ The backdrop and the sculptures redraw every frame, so a few rules keep that che
 - Songs are named after their files: the app shows the file's name without its extension, so a song renamed here or in a file manager shows the new name everywhere (library, search, queue, notification). A title tag is used only when there is no file name to go by. Rename changes the file's name and keeps its extension. Delete removes the file from the phone and the song from the queue. Android 10 and later ask you to approve each change in a system dialog; Android 8 and 9 ask once for storage permission
 - Sleep timer (15, 30, 45, 60 or 90 minutes, or the end of the current song), from `⋯` in Now Playing. A chip on the stage counts down. "End of song" pauses inside the player, so the next song never starts
 - Equalizer with presets, bass boost and preamp (see above)
+- Bluetooth volume shortcuts, for headphones with only volume buttons: while a song plays over Bluetooth, volume up twice skips to the next song, volume down twice goes back, and volume up three times pauses. Presses count when they are within 0.6 s of each other, and the volume returns to where it was. They work with the screen off. A headset's volume buttons never reach an app as key presses, so the app watches the media volume instead: the phone's own volume buttons count too, and a press that cannot move the volume (up at full volume) is not seen. On by default; switch them off from `⋯` in Now Playing
 - Home (library counters, daily mix, recently added), Library (A-Z with a jump rail), Search (debounced, top-artist links), Bugs (console), mini player, Now Playing
 - Large libraries queue a window around the tapped song first (100 before, 300 after) so it starts at once, then the rest of the list follows in batches of 250
 
@@ -100,7 +101,7 @@ Gradle 8.9, JDK 17: `gradle assembleDebug`. Compose previews (light and dark) ar
 app/src/main/java/com/zmusic/app/
   data/        Room entity, DAO, database, MediaStore scanner, repository, file rename/delete
   debug/       BugLog: the in-app console's store and crash handler
-  playback/    PlaybackService, PlayerController, LevelAudioProcessor, AudioLevels, session commands
+  playback/    PlaybackService, PlayerController, LevelAudioProcessor, AudioLevels, session commands, volume shortcuts
   playback/eq/ equalizer: settings and presets, filter design, audio processor, store
   ui/sound/    the Sound panel: band graph, sliders, view model
   ui/songs/    song options sheet, rename and delete dialogs, their view model

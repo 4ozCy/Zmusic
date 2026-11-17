@@ -32,16 +32,21 @@ import com.zmusic.app.playback.eq.EqualizerAudioProcessor
  * The media notification and the lock screen get shuffle and repeat buttons next to the
  * transport controls. They are custom session commands, and their icons follow the player's
  * state whichever screen or controller changed it.
+ *
+ * It also runs the volume shortcuts ([VolumeShortcutWatcher]), which have to work with the
+ * screen off and the app closed.
  */
 @UnstableApi
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
+    private var volumeShortcuts: VolumeShortcutWatcher? = null
 
     override fun onCreate() {
         super.onCreate()
 
-        val equalizerStore = (application as ZmusicApp).container.equalizer
+        val container = (application as ZmusicApp).container
+        val equalizerStore = container.equalizer
         // Same renderers as default, plus the equalizer and a pass-through analyser feeding the
         // Now Playing visuals. The analyser comes second so the visuals follow what you hear.
         val renderers = object : DefaultRenderersFactory(this) {
@@ -110,6 +115,9 @@ class PlaybackService : MediaSessionService() {
             .setCallback(Callback())
             .setCustomLayout(buttonsFor(player))
             .build()
+
+        val shortcutsOn = container.volumeShortcuts.enabled
+        volumeShortcuts = VolumeShortcutWatcher(this, player) { shortcutsOn.value }.also { it.start() }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -122,6 +130,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        volumeShortcuts?.stop()
+        volumeShortcuts = null
         session?.run {
             player.release()
             release()

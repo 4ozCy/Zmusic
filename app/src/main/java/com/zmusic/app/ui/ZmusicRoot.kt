@@ -93,6 +93,7 @@ import com.zmusic.app.ui.songs.RenameDialog
 import com.zmusic.app.ui.songs.SongActionsViewModel
 import com.zmusic.app.ui.songs.SongOptionActions
 import com.zmusic.app.ui.songs.SongOptionsSheet
+import com.zmusic.app.ui.songs.VOLUME_SHORTCUTS_ON
 import com.zmusic.app.ui.sound.SoundViewModel
 import com.zmusic.app.ui.theme.ZmusicTheme
 import com.zmusic.app.ui.welcome.WelcomeScreen
@@ -267,6 +268,7 @@ private fun MainShell(
     // One position ticker shared by the mini player and the sheet. Read only in draw lambdas.
     val position = player.position.collectAsStateWithLifecycle(initialValue = 0L)
     val sleepTimer by player.sleepTimer.collectAsStateWithLifecycle()
+    val volumeShortcuts by container.volumeShortcuts.enabled.collectAsStateWithLifecycle()
 
     val soundVm: SoundViewModel = viewModel(factory = viewModelFactory { initializer { SoundViewModel(container.equalizer) } })
     val sound by soundVm.settings.collectAsStateWithLifecycle()
@@ -485,10 +487,20 @@ private fun MainShell(
             track = track,
             onDismiss = { optionsId = null },
             sleepDetail = if (optionsFromPlayer) sleepTimerLabel(sleepTimer) ?: "Off" else null,
+            shortcutsDetail = if (volumeShortcuts) VOLUME_SHORTCUTS_ON else "Off",
             actions = SongOptionActions(
                 onPlayNext = if (optionsFromPlayer) null else ({ songVm.playNext(track) }),
                 onAddToQueue = if (optionsFromPlayer) null else ({ songVm.addToQueue(track) }),
                 onSleepTimer = if (optionsFromPlayer) ({ showSleepTimer = true }) else null,
+                onVolumeShortcuts = if (optionsFromPlayer) {
+                    {
+                        val on = !volumeShortcuts
+                        container.volumeShortcuts.setEnabled(on)
+                        notices.show(if (on) "Bluetooth volume shortcuts on" else "Bluetooth volume shortcuts off")
+                    }
+                } else {
+                    null
+                },
                 onShare = { shareSong(context, track) },
                 onRename = { renameId = track.mediaStoreId },
                 onDelete = { deleteId = track.mediaStoreId },
