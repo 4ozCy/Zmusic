@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -197,7 +198,10 @@ private fun IndexRail(groups: List<LetterGroup>, listState: LazyListState, modif
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val current by rememberUpdatedState(groups)
-    val active by remember {
+    // Held as a State and read inside each letter rather than here: a flick through the library
+    // changes this many times a second, and reading it in this scope would recompose every letter
+    // in the rail each time instead of only the two whose colour actually changes.
+    val active = remember {
         derivedStateOf {
             val first = listState.firstVisibleItemIndex
             current.indexOfLast { it.headerIndex <= first }.coerceAtLeast(0)
@@ -238,15 +242,22 @@ private fun IndexRail(groups: List<LetterGroup>, listState: LazyListState, modif
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             groups.forEachIndexed { i, group ->
-                val color by animateColorAsState(
-                    targetValue = if (i == active) MaterialTheme.colorScheme.primary else AppTheme.extended.textDim,
-                    animationSpec = tween(160),
-                    label = "railLetter",
-                )
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(group.letter, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
-                }
+                RailLetter(group.letter, i, active, Modifier.weight(1f))
             }
         }
+    }
+}
+
+/** One letter of the rail. Amber while its group is the one at the top of the list. */
+@Composable
+private fun RailLetter(letter: String, index: Int, active: State<Int>, modifier: Modifier) {
+    val isActive by remember(index) { derivedStateOf { active.value == index } }
+    val color by animateColorAsState(
+        targetValue = if (isActive) MaterialTheme.colorScheme.primary else AppTheme.extended.textDim,
+        animationSpec = tween(160),
+        label = "railLetter",
+    )
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Text(letter, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
     }
 }
