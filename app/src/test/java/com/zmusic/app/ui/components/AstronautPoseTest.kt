@@ -1,20 +1,23 @@
 package com.zmusic.app.ui.components
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * [AstronautPose.rig] does once a frame what the astronaut shader used to do for every pixel.
- * These checks hold it to that shader code, ported here line for line.
+ * [AstronautPose] works out once a frame what the astronaut shader draws. These checks hold it
+ * to the shader's maths, keep the limbs in one piece, and make sure the wave happens, reads as a
+ * wave, and never makes the figure jump.
  */
 class AstronautPoseTest {
 
-    private class V(val x: Float, val y: Float) {
-        operator fun plus(o: V) = V(x + o.x, y + o.y)
-    }
+    private class V(val x: Float, val y: Float)
 
     private fun rot(p: V, a: Float): V {
         val c = cos(a)
@@ -22,57 +25,50 @@ class AstronautPoseTest {
         return V(c * p.x - s * p.y, s * p.x + c * p.y)
     }
 
-    /** The shader's old joint maths, unchanged, in the order [AstronautPose.joints] keeps them. */
-    private fun shaderJoints(t: Float): List<V> {
-        val a1 = 0.10f * sin(t * 0.6981317f)
-        val a2 = 0.12f * sin(t * 0.5235988f + 1.3f)
-        val l1 = 0.06f * sin(t * 0.6283185f + 2.1f)
-        val l2 = 0.08f * sin(t * 0.4188790f + 0.4f)
-        val s1 = V(-0.52f, 0.50f)
-        val e1 = s1 + rot(V(-0.53f, -0.40f), a1)
-        val w1 = e1 + rot(V(-0.10f, 0.50f), a1 * 1.6f)
-        val g1 = w1 + rot(V(-0.02f, 0.14f), a1 * 1.6f)
-        val s2 = V(0.52f, 0.50f)
-        val e2 = s2 + rot(V(0.54f, -0.32f), a2)
-        val w2 = e2 + rot(V(0.16f, 0.50f), a2 * 1.5f)
-        val g2 = w2 + rot(V(0.03f, 0.14f), a2 * 1.5f)
-        val h1 = V(-0.24f, -0.74f)
-        val k1 = h1 + rot(V(-0.18f, -0.71f), l1)
-        val f1 = k1 + rot(V(0.12f, -0.67f), l1 * 1.4f)
-        val t1 = f1 + rot(V(-0.20f, -0.10f), l1 * 1.4f)
-        val h2 = V(0.24f, -0.74f)
-        val k2 = h2 + rot(V(0.31f, -0.66f), l2)
-        val f2 = k2 + rot(V(-0.13f, -0.68f), l2 * 1.4f)
-        val t2 = f2 + rot(V(0.22f, -0.08f), l2 * 1.4f)
-        return listOf(e1, w1, g1, e2, w2, g2, k1, f1, t1, k2, f2, t2)
-    }
-
     private fun normalize(x: Float, y: Float, z: Float): FloatArray {
         val len = sqrt(x * x + y * y + z * z)
         return floatArrayOf(x / len, y / len, z / len)
     }
 
+    private fun posed(t: Float) = AstronautPose().apply {
+        update(t, 1080f, 2340f)
+        rig(t)
+    }
+
+    /** Roots (shoulders, hips) and the rest length of each segment below them, in [AstronautPose.joints] order. */
+    private val roots = listOf(V(-0.52f, 0.50f), V(0.52f, 0.50f), V(-0.24f, -0.74f), V(0.24f, -0.74f))
+    private val lengths = listOf(
+        listOf(hypot(-0.53f, -0.40f), hypot(-0.10f, 0.50f), hypot(-0.02f, 0.14f)),
+        listOf(hypot(0.54f, -0.32f), hypot(0.16f, 0.50f), hypot(0.03f, 0.14f)),
+        listOf(hypot(-0.20f, -0.82f), hypot(0.13f, -0.76f), hypot(-0.22f, -0.10f)),
+        listOf(hypot(0.34f, -0.74f), hypot(-0.14f, -0.76f), hypot(0.24f, -0.08f)),
+    )
+
     @Test
-    fun jointsMatchTheShader() {
-        val pose = AstronautPose()
-        for (step in 0 until 400) {
-            val t = step * 9.1f
-            pose.update(t, 1080f, 2340f)
-            pose.rig(t)
-            shaderJoints(t).forEachIndexed { k, v ->
-                assertEquals("joint $k x at $t s", v.x, pose.joints[k * 2], 1e-5f)
-                assertEquals("joint $k y at $t s", v.y, pose.joints[k * 2 + 1], 1e-5f)
+    fun limbsKeepTheirLengthsThroughEveryMove() {
+        // Every 0.37 s over an hour lands all through the waves as well as between them.
+        var t = 0f
+        while (t < 3600f) {
+            val j = posed(t).joints
+            for (limb in 0 until 4) {
+                var px = roots[limb].x
+                var py = roots[limb].y
+                for (seg in 0 until 3) {
+                    val k = limb * 6 + seg * 2
+                    assertEquals("limb $limb segment $seg at $t s", lengths[limb][seg], hypot(j[k] - px, j[k + 1] - py), 1e-4f)
+                    px = j[k]
+                    py = j[k + 1]
+                }
             }
+            t += 0.37f
         }
     }
 
     @Test
     fun lightAndFrameMatchTheShader() {
-        val pose = AstronautPose()
         for (step in 0 until 400) {
             val t = step * 7.3f
-            pose.update(t, 1080f, 2340f)
-            pose.rig(t)
+            val pose = posed(t)
 
             // q = rot(fragCoord - uCenter, -uAngle) / uScale: check it on a sample offset.
             val q = rot(V(37f, -81f), -pose.angle)
@@ -90,6 +86,62 @@ class AstronautPoseTest {
             val flat = maxOf(sqrt(l[0] * l[0] + l[1] * l[1]), 1e-4f)
             assertEquals(l[0] / flat, pose.lightXY[0], 1e-5f)
             assertEquals(l[1] / flat, pose.lightXY[1], 1e-5f)
+
+            // uHead = (cos, sin) of the helmet's tilt.
+            assertEquals(cos(pose.head), pose.headCos, 1e-6f)
+            assertEquals(sin(pose.head), pose.headSin, 1e-6f)
+        }
+    }
+
+    @Test
+    fun wavesEveryHalfMinuteStandingUpright() {
+        for (k in 0 until 120) {
+            val start = WAVE_AT + k * WAVE_PERIOD
+            if (start + 3f >= 3600f) break
+            // Halfway through: upright, the near hand up past the helmet and open.
+            val mid = posed(start + 2.6f)
+            assertEquals("faces you at $start s", 1f, mid.face, 1e-6f)
+            assertEquals("arm up at $start s", 1f, mid.wave, 1e-6f)
+            val roll = atan2(sin(mid.angle), cos(mid.angle))
+            assertTrue("upright at $start s (roll $roll)", abs(roll - 0.10f) < 0.05f)
+            assertTrue("hand above the shoulder at $start s", mid.joints[11] > 0.50f + 0.8f)
+
+            // The hand really swings: its tip crosses from one side of the wrist to the other.
+            val tips = (0 until 20).map { i ->
+                val p = posed(start + 1.9f + i * 0.08f)
+                p.joints[10] - p.joints[8]
+            }
+            assertTrue("swings at $start s", tips.max() - tips.min() > 0.08f)
+
+            // Between waves: none of it.
+            val between = posed(start + 15f)
+            assertEquals(0f, between.face, 0f)
+            assertEquals(0f, between.wave, 0f)
+        }
+    }
+
+    @Test
+    fun movesSmoothlyFrameToFrameIncludingTheHourlyWrap() {
+        val step = 1f / 60f
+        var prev = posed(3600f - 2f)
+        var t = 3600f - 2f + step
+        var frames = 0
+        // Through the last two seconds of the hour, the wrap to zero, and on through a whole hour.
+        while (frames < 60 * 3600) {
+            val clock = if (t >= 3600f) t - 3600f else t
+            val cur = posed(clock)
+            val tag = "at $clock s"
+            // The roll may land on the other side of a whole turn, so compare the direction.
+            assertTrue("roll $tag", hypot(cos(cur.angle) - cos(prev.angle), sin(cur.angle) - sin(prev.angle)) < 0.08f)
+            assertTrue("x $tag", abs(cur.x - prev.x) < 3f)
+            assertTrue("y $tag", abs(cur.y - prev.y) < 3f)
+            assertTrue("scale $tag", abs(cur.scale - prev.scale) < 0.2f)
+            assertTrue("head $tag", abs(cur.head - prev.head) < 0.03f)
+            for (i in 0 until 24) assertTrue("joint $i $tag", abs(cur.joints[i] - prev.joints[i]) < 0.06f)
+            assertTrue("puff $tag", cur.puff in 0f..1f)
+            prev = cur
+            t = if (t >= 3600f) clock + step else t + step
+            frames++
         }
     }
 }
