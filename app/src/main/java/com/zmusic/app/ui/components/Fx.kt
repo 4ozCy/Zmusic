@@ -42,10 +42,8 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -252,22 +250,25 @@ fun TextAction(
 }
 
 /**
- * Dissolves scrolling content as it passes under the status bar instead of letting it collide
- * with the clock. [height] is the status bar inset; the fade finishes a little below it.
- * One offscreen layer for the whole list, masked with a cached gradient.
+ * Dims scrolling content as it passes under the status bar instead of letting it collide with the
+ * clock. [height] is the status bar inset; the band finishes a little below it.
+ *
+ * This used to mask the list with `BlendMode.DstIn`, which needs an offscreen layer: the whole
+ * list was rasterised into a full-screen buffer and composited back on every scrolled frame. A
+ * band of the page colour over the top strip costs one small gradient rect instead, and the strip
+ * is dark enough that the difference is the starfield showing through it, not the content.
  */
-fun Modifier.topFade(height: Dp): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithCache {
-        val end = height.toPx() + 14.dp.toPx()
-        val mask = Brush.verticalGradient(
-            0f to Color.Transparent,
-            1f to Color.Black,
-            startY = end * 0.40f,
-            endY = end,
-        )
-        onDrawWithContent {
-            drawContent()
-            drawRect(mask, size = Size(size.width, end), blendMode = BlendMode.DstIn)
-        }
+fun Modifier.topFade(height: Dp): Modifier = this.drawWithCache {
+    val end = height.toPx() + 14.dp.toPx()
+    val scrim = Brush.verticalGradient(
+        0f to Nocturne.Obsidian.copy(alpha = 0.94f),
+        0.40f to Nocturne.Obsidian.copy(alpha = 0.94f),
+        1f to Color.Transparent,
+        startY = 0f,
+        endY = end,
+    )
+    onDrawWithContent {
+        drawContent()
+        drawRect(scrim, size = Size(size.width, end))
     }
+}

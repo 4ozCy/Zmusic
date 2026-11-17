@@ -4,6 +4,8 @@ import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -11,14 +13,17 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.zmusic.app.debug.BugLog
@@ -645,15 +650,41 @@ fun AmbientAudioShaderBackground(modifier: Modifier = Modifier) {
     val spin = remember { RingSpin() }
     val shader = if (Build.VERSION.SDK_INT >= 33) remember { createBlackHoleShader() } else null
     Box(modifier) {
-        if (Build.VERSION.SDK_INT >= 33 && shader != null) {
-            AgslBlackHole(tracker, spin, shader, Modifier.matchParentSize())
-        } else {
-            CanvasBlackHole(tracker, spin, Modifier.matchParentSize())
+        // The hole is the one thing here that shades every pixel on the screen, every frame, and
+        // it is the heaviest pass in the app. It is drawn into an offscreen layer that is a
+        // fraction of the window and scaled back up, so it shades RASTER_SCALE^2 of the pixels.
+        // Everything in the scene is sized in fractions of the width, and the shader takes its
+        // anti-aliasing from the size it is given, so the picture is the same, only softer. The
+        // streak and the astronaut stay at full resolution: both are thin, bright detail, and
+        // both already draw a small area rather than the screen.
+        BoxWithConstraints(Modifier.matchParentSize()) {
+            val raster = Modifier
+                .size(maxWidth * RASTER_SCALE, maxHeight * RASTER_SCALE)
+                .graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    // A hair over the exact ratio so rounding the layer to whole pixels cannot
+                    // leave a seam of bare window down the right edge or along the bottom.
+                    scaleX = 1.004f / RASTER_SCALE
+                    scaleY = 1.004f / RASTER_SCALE
+                }
+            if (Build.VERSION.SDK_INT >= 33 && shader != null) {
+                AgslBlackHole(tracker, spin, shader, raster)
+            } else {
+                CanvasBlackHole(tracker, spin, raster)
+            }
         }
         ShootingStar(tracker, Modifier.matchParentSize())
         FloatingAstronaut(tracker, Modifier.matchParentSize())
     }
 }
+
+/**
+ * How much of the window the backdrop is actually shaded at. 1 is native resolution; 0.72 is
+ * about half the pixels and the point where softening is still hard to see on the hairline photon
+ * ring. Lower it on a slow device, raise it to 1 to turn the saving off.
+ */
+private const val RASTER_SCALE = 0.72f
 
 /**
  * The disc's rotation angle. It speeds up when playback starts (faster on heavy bass), and
