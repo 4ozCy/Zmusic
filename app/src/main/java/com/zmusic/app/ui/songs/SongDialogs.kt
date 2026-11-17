@@ -69,7 +69,7 @@ fun RenameDialog(track: TrackEntity, onDismiss: () -> Unit, onRename: (String) -
         text = {
             Column {
                 Text(
-                    "This renames the file on your phone. A song with a title tag keeps showing that title.",
+                    "This renames the file on your phone, and the song is called the new name here too.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(
@@ -112,8 +112,7 @@ fun DeleteDialog(track: TrackEntity, onDismiss: () -> Unit, onDelete: () -> Unit
         text = {
             Text(
                 buildString {
-                    append("“${track.title}”")
-                    track.fileName?.let { append(" ($it)") }
+                    append("“${track.fileName ?: track.title}”")
                     append(" will be deleted from your phone. You can't undo this.")
                     if (systemAsks) append(" Android asks once more before it deletes.")
                 },

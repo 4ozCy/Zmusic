@@ -17,6 +17,16 @@ object FileNames {
         return if (dot > 0) fileName.substring(0, dot) else fileName
     }
 
+    /**
+     * What the app calls a song: its file name without the extension, so renaming the file
+     * renames the song. [fallback] (the title tag) is used only when there is no usable file
+     * name, for example on rows stored before file names were kept.
+     */
+    fun titleFrom(fileName: String?, fallback: String): String {
+        val base = fileName?.let(::baseName)?.trim()
+        return if (base.isNullOrEmpty()) fallback else base
+    }
+
     /** "Song.mp3" -> "mp3", or "" when there is none. */
     fun extension(fileName: String): String {
         val dot = fileName.lastIndexOf('.')

@@ -59,10 +59,12 @@ class MediaStoreScanner(private val context: Context) {
 
             while (c.moveToNext()) {
                 val id = c.getLong(idCol)
+                val fileName = c.getString(nameCol)
                 out += TrackEntity(
                     mediaStoreId = id,
                     uri = ContentUris.withAppendedId(collection, id).toString(),
-                    title = cleanOr(c.getString(titleCol), "Unknown title"),
+                    // The file's name is what the app shows, so a renamed file shows its new name.
+                    title = FileNames.titleFrom(fileName, cleanOr(c.getString(titleCol), "Unknown title")),
                     artist = cleanOr(c.getString(artistCol), "Unknown artist"),
                     album = cleanOr(c.getString(albumCol), "Unknown album"),
                     albumId = c.getLong(albumIdCol),
@@ -71,7 +73,7 @@ class MediaStoreScanner(private val context: Context) {
                     sizeBytes = c.getLong(sizeCol),
                     mimeType = c.getString(mimeCol),
                     relativePath = if (pathCol >= 0) c.getString(pathCol) else null,
-                    fileName = c.getString(nameCol),
+                    fileName = fileName,
                 )
             }
         }

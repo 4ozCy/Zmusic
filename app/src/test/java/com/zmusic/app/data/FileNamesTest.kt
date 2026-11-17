@@ -18,6 +18,21 @@ class FileNamesTest {
     }
 
     @Test
+    fun namesTheSongAfterItsFile() {
+        assertEquals("Song", FileNames.titleFrom("Song.mp3", "Tagged title"))
+        assertEquals("01 - Intro", FileNames.titleFrom("01 - Intro.flac", "Tagged title"))
+        // A rename shows up as soon as the file name does.
+        assertEquals("New name", FileNames.titleFrom("New name.mp3", "Tagged title"))
+    }
+
+    @Test
+    fun fallsBackToTheTagWithoutAFileName() {
+        assertEquals("Tagged title", FileNames.titleFrom(null, "Tagged title"))
+        assertEquals("Tagged title", FileNames.titleFrom("", "Tagged title"))
+        assertEquals("Tagged title", FileNames.titleFrom("   ", "Tagged title"))
+    }
+
+    @Test
     fun keepsTheExtension() {
         assertEquals("New name.mp3", FileNames.rename("New name", "old.mp3"))
         assertEquals("New name.mp3", FileNames.rename("  New name  ", "old.mp3"))

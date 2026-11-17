@@ -16,6 +16,10 @@ import androidx.room.PrimaryKey
 data class TrackEntity(
     @PrimaryKey val mediaStoreId: Long,
     val uri: String,
+    /**
+     * What the app shows. Taken from [fileName] without its extension, so renaming the file
+     * renames the song; the title tag is used only when there is no file name to go by.
+     */
     val title: String,
     val artist: String,
     val album: String,

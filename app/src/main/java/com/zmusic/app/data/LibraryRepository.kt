@@ -50,16 +50,27 @@ class LibraryRepository(
 
     /**
      * Renames the song's file to [input] (extension kept). On [FileChange.Done] the song is read
-     * back from MediaStore, so a title that came from the old name changes with it. Returns the
-     * fresh row alongside, or null if the song can no longer be read.
+     * back from MediaStore so its name in the app changes with the file. MediaStore can still be
+     * a beat behind, so the name the rename reported wins over a stale row. Returns the fresh row
+     * alongside, or null if the song can no longer be read.
      */
     suspend fun rename(track: TrackEntity, input: String, approved: Boolean): Pair<FileChange, TrackEntity?> {
         val result = files.rename(track, input, approved)
         if (result is FileChange.Failed) BugLog.w("Library", "Could not rename \"${track.title}\": ${result.reason}")
         if (result !is FileChange.Done) return result to null
-        val fresh = withContext(Dispatchers.IO) { scanner.scanOne(track.mediaStoreId) }
-        if (fresh != null) dao.upsertAll(listOf(fresh))
-        BugLog.i("Library", "Renamed \"${track.fileName}\" to \"${fresh?.fileName ?: result.fileName}\"")
+        val scanned = withContext(Dispatchers.IO) { scanner.scanOne(track.mediaStoreId) }
+        val named = result.fileName
+        val fresh = when {
+            // MediaStore hasn't caught up: keep the row but give it the name the file now has.
+            scanned != null && named != null && scanned.fileName != named ->
+                scanned.copy(fileName = named, title = FileNames.titleFrom(named, scanned.title))
+            scanned != null -> scanned
+            // The song is gone from MediaStore; don't drop the rename on the floor.
+            named != null -> track.copy(fileName = named, title = FileNames.titleFrom(named, track.title))
+            else -> null
+        }
+        if (fresh != null && fresh != track) dao.upsertAll(listOf(fresh))
+        BugLog.i("Library", "Renamed \"${track.fileName}\" to \"${fresh?.fileName ?: named}\"")
         return result to fresh
     }
 
