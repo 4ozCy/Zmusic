@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.Share
@@ -42,11 +43,15 @@ import com.zmusic.app.ui.theme.TimeStyle
 import com.zmusic.app.ui.theme.ZmusicTheme
 import kotlinx.coroutines.launch
 
+/** Under the shortcuts row while they are on: the three of them, so nobody has to remember. */
+const val VOLUME_SHORTCUTS_ON = "On. Volume up twice: next song. Down twice: back. Up three times: pause."
+
 /** What the options sheet can do. Null entries are left out of the list. */
 data class SongOptionActions(
     val onPlayNext: (() -> Unit)? = null,
     val onAddToQueue: (() -> Unit)? = null,
     val onSleepTimer: (() -> Unit)? = null,
+    val onVolumeShortcuts: (() -> Unit)? = null,
     val onShare: () -> Unit = {},
     val onRename: () -> Unit = {},
     val onDelete: () -> Unit = {},
@@ -58,6 +63,7 @@ data class SongOptionActions(
  * that follows does not appear on top of it.
  *
  * @param sleepDetail state of the sleep timer, shown under its row ("Off", "Stops in 12:03").
+ * @param shortcutsDetail state of the Bluetooth volume shortcuts, shown under their row.
  */
 @Composable
 fun SongOptionsSheet(
@@ -65,6 +71,7 @@ fun SongOptionsSheet(
     actions: SongOptionActions,
     onDismiss: () -> Unit,
     sleepDetail: String? = null,
+    shortcutsDetail: String? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -84,7 +91,7 @@ fun SongOptionsSheet(
         scrimColor = Color.Black.copy(alpha = 0.55f),
         dragHandle = { SheetGrabber() },
     ) {
-        SongOptionsContent(track, actions, sleepDetail, onChoose = ::choose)
+        SongOptionsContent(track, actions, sleepDetail, shortcutsDetail, onChoose = ::choose)
     }
 }
 
@@ -94,6 +101,7 @@ fun SongOptionsContent(
     track: TrackEntity,
     actions: SongOptionActions,
     sleepDetail: String?,
+    shortcutsDetail: String?,
     onChoose: (() -> Unit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -129,6 +137,9 @@ fun SongOptionsContent(
         actions.onPlayNext?.let { OptionRow(Icons.AutoMirrored.Rounded.PlaylistPlay, "Play next") { onChoose(it) } }
         actions.onAddToQueue?.let { OptionRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to queue") { onChoose(it) } }
         actions.onSleepTimer?.let { OptionRow(Icons.Rounded.Bedtime, "Sleep timer", detail = sleepDetail) { onChoose(it) } }
+        actions.onVolumeShortcuts?.let {
+            OptionRow(Icons.Rounded.Bluetooth, "Bluetooth volume shortcuts", detail = shortcutsDetail) { onChoose(it) }
+        }
         OptionRow(Icons.Rounded.Share, "Share") { onChoose(actions.onShare) }
         OptionRow(Icons.Rounded.DriveFileRenameOutline, "Rename file") { onChoose(actions.onRename) }
         OptionRow(Icons.Rounded.DeleteOutline, "Delete file", tint = MaterialTheme.colorScheme.error) { onChoose(actions.onDelete) }
@@ -145,8 +156,9 @@ private fun SongOptionsPreview() {
                 albumId = 1, durationMs = 243_000, dateAdded = 0, sizeBytes = 0, mimeType = "audio/mpeg", relativePath = null,
                 fileName = "01 Midnight City.mp3",
             ),
-            actions = SongOptionActions(onPlayNext = {}, onAddToQueue = {}),
+            actions = SongOptionActions(onPlayNext = {}, onAddToQueue = {}, onVolumeShortcuts = {}),
             sleepDetail = null,
+            shortcutsDetail = VOLUME_SHORTCUTS_ON,
             onChoose = {},
         )
     }
